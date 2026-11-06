@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -114,12 +115,17 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val currentTabId = backStackEntry?.arguments?.getString("tabId")
+    val currentTabId = remember(currentRoute, tabs) {
+        tabs.firstOrNull { mainRoute(it.id) == currentRoute }?.id
+    }
     val topLevel = currentRoute?.startsWith("main/") == true
 
     fun openTab(tabId: String) {
-        navController.navigate(mainRoute(tabId)) {
-            popUpTo(startRoute) { saveState = true }
+        val target = tabs.firstOrNull { it.id == tabId } ?: return
+        navController.navigate(mainRoute(target.id)) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
             launchSingleTop = true
             restoreState = true
         }
@@ -156,40 +162,37 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
             startDestination = startRoute,
             modifier = Modifier.padding(padding)
         ) {
-            composable(
-                route = "main/{tabId}",
-                arguments = listOf(navArgument("tabId") { type = NavType.StringType })
-            ) { entry ->
-                val tabId = entry.arguments?.getString("tabId") ?: startTab.id
-                val tab = tabs.firstOrNull { it.id == tabId } ?: startTab
-                when (tab.type) {
-                    "home" -> HomeScreen(
-                        repository = repository,
-                        onOpenDetail = { type, id ->
-                            navController.navigate(detailRoute(type, id))
-                        },
-                        onPlay = { type, id, season, episode, title, poster ->
-                            navController.navigate(playerRoute(type, id, season, episode, title, poster))
-                        },
-                        onOpenTab = { tabId -> openTab(tabId) }
-                    )
+            tabs.forEach { tab ->
+                composable(route = mainRoute(tab.id)) {
+                    when (tab.type) {
+                        "home" -> HomeScreen(
+                            repository = repository,
+                            onOpenDetail = { type, id ->
+                                navController.navigate(detailRoute(type, id))
+                            },
+                            onPlay = { type, id, season, episode, title, poster ->
+                                navController.navigate(playerRoute(type, id, season, episode, title, poster))
+                            },
+                            onOpenTab = { tabId -> openTab(tabId) }
+                        )
 
-                    "search" -> SearchScreen(
-                        repository = repository,
-                        endpoint = tab.endpoint ?: config.endpoints.search,
-                        onOpenDetail = { type, id ->
-                            navController.navigate(detailRoute(type, id))
-                        }
-                    )
+                        "search" -> SearchScreen(
+                            repository = repository,
+                            endpoint = tab.endpoint ?: config.endpoints.search,
+                            onOpenDetail = { type, id ->
+                                navController.navigate(detailRoute(type, id))
+                            }
+                        )
 
-                    else -> CatalogScreen(
-                        repository = repository,
-                        title = tab.title,
-                        endpoint = catalogEndpoint(tab, config),
-                        onOpenDetail = { type, id ->
-                            navController.navigate(detailRoute(type, id))
-                        }
-                    )
+                        else -> CatalogScreen(
+                            repository = repository,
+                            title = tab.title,
+                            endpoint = catalogEndpoint(tab, config),
+                            onOpenDetail = { type, id ->
+                                navController.navigate(detailRoute(type, id))
+                            }
+                        )
+                    }
                 }
             }
 

@@ -22,7 +22,6 @@ data class PlayerUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val selected: Stream? = null,
-    val webMode: Boolean = false,
     val switching: Boolean = false
 )
 
@@ -64,33 +63,21 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
     }
 
     fun selectStream(stream: Stream) {
-        _state.update {
-            it.copy(
-                selected = stream,
-                webMode = !stream.isDirect,
-                error = null,
-                switching = false
-            )
-        }
+        _state.update { it.copy(selected = stream, error = null, switching = false) }
     }
 
-    fun onDirectError(message: String) {
+    fun onPlaybackError(message: String) {
         val payload = _state.value.watch ?: return
         val current = _state.value.selected
-        val nextDirect = payload.streams.firstOrNull {
-            it.url != null && it.isDirect && it.url != current?.url
+        val next = payload.streams.firstOrNull { candidate ->
+            candidate.isPlayable && !sameStream(candidate, current)
         }
-        if (nextDirect != null) {
-            _state.update { it.copy(selected = nextDirect, webMode = false, error = message) }
-            return
-        }
-        val web = payload.streams.firstOrNull {
-            !it.isDirect && it.playTarget != null && it.playTarget != current?.playTarget
-        }
-        if (web != null) {
-            _state.update { it.copy(selected = web, webMode = true, error = message) }
+        if (next != null) {
+            _state.update { it.copy(selected = next, error = message) }
         } else {
-            _state.update { it.copy(error = message) }
+            _state.update {
+                it.copy(error = "Não foi possível reproduzir esta fonte. Tente novamente mais tarde.")
+            }
         }
     }
 
@@ -113,6 +100,14 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
         execute()
     }
 
+    private fun sameStream(first: Stream, second: Stream?): Boolean {
+        if (second == null) return false
+        return first.type == second.type &&
+            first.url == second.url &&
+            first.embed == second.embed &&
+            first.resolver == second.resolver
+    }
+
     private fun execute() {
         val current = request ?: return
         viewModelScope.launch {
@@ -129,11 +124,16 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                 )
             }.onSuccess { response ->
                 val payload = response.data
-                val playable = payload?.streams?.filter { it.playTarget != null }.orEmpty()
-                val best = payload?.best?.takeIf { it.playTarget != null } ?: playable.firstOrNull()
+                val playable = payload?.streams?.filter { it.isPlayable }.orEmpty()
+                val best = payload?.best?.takeIf { it.isPlayable } ?: playable.firstOrNull()
                 if (payload == null || playable.isEmpty() || best == null) {
                     _state.update {
-                        it.copy(loading = false, error = "Nenhuma fonte disponível para este título agora.", watch = payload)
+                        it.copy(
+                            loading = false,
+                            watch = payload,
+                            selected = null,
+                            error = "Nenhuma fonte compatível com o player nativo para este título."
+                        )
                     }
                     return@onSuccess
                 }
@@ -143,8 +143,7 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                         watch = resolved,
                         loading = false,
                         error = null,
-                        selected = best,
-                        webMode = !best.isDirect
+                        selected = best
                     )
                 }
                 repository.recordRaw(

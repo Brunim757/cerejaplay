@@ -2,13 +2,8 @@ package com.cerejaplay.app.ui.screens
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
-import android.view.ViewGroup
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,7 +20,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,7 +28,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Forward10
-import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
@@ -86,6 +79,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.cerejaplay.app.data.model.Stream
 import com.cerejaplay.app.data.repo.CerejaRepository
+import com.cerejaplay.app.data.resolve.ResolvedStream
+import com.cerejaplay.app.data.resolve.StreamResolver
 import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.ErrorState
 import com.cerejaplay.app.ui.components.LoadingState
@@ -176,21 +171,20 @@ fun PlayerScreen(
                 )
             }
 
-            state.selected != null -> {
-                val stream = state.selected!!
-                if (state.webMode) {
-                    WebPlayer(
-                        stream = stream,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    DirectPlayer(
-                        stream = stream,
-                        autoplay = config.player.autoplay,
-                        onError = viewModel::onDirectError,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+            state.selected == null -> {
+                ErrorState(
+                    message = state.error ?: "Nenhuma fonte compatível com o player nativo para este título.",
+                    onRetry = viewModel::retry
+                )
+            }
+
+            else -> {
+                DirectPlayer(
+                    stream = state.selected!!,
+                    autoplay = config.player.autoplay,
+                    onError = viewModel::onPlaybackError,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
 
@@ -198,8 +192,7 @@ fun PlayerScreen(
             title = state.watch?.title ?: title,
             subtitle = episodeLabel(type, state.watch?.season, state.watch?.episode, state.watch?.episodeLabel),
             onBack = onBack,
-            onSources = { showSources = true },
-            onExternal = state.selected?.playTarget?.let { target -> { openExternal(context, target) } }
+            onSources = { showSources = true }
         )
 
         if (state.error != null && state.watch != null && state.selected != null) {
@@ -237,8 +230,7 @@ private fun PlayerTopBar(
     title: String,
     subtitle: String?,
     onBack: () -> Unit,
-    onSources: () -> Unit,
-    onExternal: (() -> Unit)?
+    onSources: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -279,11 +271,6 @@ private fun PlayerTopBar(
             IconButton(onClick = onSources) {
                 Icon(Icons.Rounded.FormatListBulleted, contentDescription = "Fontes", tint = Color.White)
             }
-            if (onExternal != null) {
-                IconButton(onClick = onExternal) {
-                    Icon(Icons.Rounded.OpenInNew, contentDescription = "Abrir no navegador", tint = Color.White)
-                }
-            }
         }
     }
 }
@@ -303,49 +290,83 @@ private fun DirectPlayer(
     var buffering by remember { mutableStateOf(true) }
     var ended by remember { mutableStateOf(false) }
 
-    val exoPlayer = remember(stream.url, stream.headers, stream.type) {
-        val headers = stream.headers
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setDefaultRequestProperties(headers)
-            .setAllowCrossProtocolRedirects(true)
-
-        val itemBuilder = MediaItem.Builder().setUri(stream.url)
-        val subtitleConfigs = stream.subtitles.mapNotNull { subtitle ->
-            val url = subtitle.url ?: return@mapNotNull null
-            val mime = when {
-                url.contains(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
-                url.contains(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
-                url.contains(".ass", ignoreCase = true) -> MimeTypes.TEXT_SSA
-                else -> MimeTypes.TEXT_VTT
+    var resolved by remember(stream) {
+        mutableStateOf(
+            stream.url?.takeIf { stream.isDirect }?.let {
+                ResolvedStream(url = it, headers = stream.headers, quality = stream.quality)
             }
-            MediaItem.SubtitleConfiguration.Builder(Uri.parse(url))
-                .setLabel(subtitle.label)
-                .setLanguage(subtitle.language ?: "und")
-                .setMimeType(mime)
-                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                .build()
-        }
-        if (subtitleConfigs.isNotEmpty()) itemBuilder.setSubtitleConfigurations(subtitleConfigs)
+        )
+    }
+    var resolving by remember(stream) { mutableStateOf(stream.type == "resolver") }
+    var resolveError by remember(stream) { mutableStateOf<String?>(null) }
 
-        val mediaItem = itemBuilder.build()
-        val isHls = stream.type == "hls" || stream.url?.contains(".m3u8", ignoreCase = true) == true
-        val source = if (isHls) {
-            HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-        } else {
-            ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+    LaunchedEffect(stream) {
+        if (stream.type != "resolver") {
+            resolving = false
+            return@LaunchedEffect
         }
+        resolving = true
+        resolveError = null
+        resolved = null
+        runCatching { StreamResolver.resolve(stream) }
+            .onSuccess { resolved = it }
+            .onFailure {
+                val message = it.message ?: "Não foi possível preparar esta fonte."
+                resolveError = message
+                onError(message)
+            }
+        resolving = false
+    }
 
-        ExoPlayer.Builder(context).build().apply {
-            setMediaSource(source)
-            prepare()
-            playWhenReady = autoplay
-        }
+    val media = resolved
+    val exoPlayer = remember(media?.url, media?.headers, stream.type) {
+        val target = media ?: return@remember null
+        runCatching {
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setDefaultRequestProperties(target.headers)
+                .setAllowCrossProtocolRedirects(true)
+
+            val itemBuilder = MediaItem.Builder().setUri(Uri.parse(target.url))
+            val subtitleConfigs = stream.subtitles.mapNotNull { subtitle ->
+                val url = subtitle.url ?: return@mapNotNull null
+                val mime = when {
+                    url.contains(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
+                    url.contains(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
+                    url.contains(".ass", ignoreCase = true) -> MimeTypes.TEXT_SSA
+                    else -> MimeTypes.TEXT_VTT
+                }
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(url))
+                    .setLabel(subtitle.label)
+                    .setLanguage(subtitle.language ?: "und")
+                    .setMimeType(mime)
+                    .build()
+            }
+            if (subtitleConfigs.isNotEmpty()) itemBuilder.setSubtitleConfigurations(subtitleConfigs)
+
+            val mediaItem = itemBuilder.build()
+            val isHls = stream.type == "hls" || target.url.contains(".m3u8", ignoreCase = true)
+            val source = if (isHls) {
+                HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+            } else {
+                ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+            }
+
+            ExoPlayer.Builder(context).build().apply {
+                setMediaSource(source)
+                prepare()
+                playWhenReady = autoplay
+            }
+        }.getOrNull()
     }
 
     LaunchedEffect(exoPlayer) {
+        val player = exoPlayer
+        if (player == null) return@LaunchedEffect
         while (true) {
-            position = exoPlayer.currentPosition.coerceAtLeast(0L)
-            duration = exoPlayer.duration.coerceAtLeast(0L)
+            runCatching {
+                position = player.currentPosition.coerceAtLeast(0L)
+                duration = player.duration.coerceAtLeast(0L)
+            }
             delay(500)
         }
     }
@@ -358,6 +379,7 @@ private fun DirectPlayer(
     }
 
     DisposableEffect(exoPlayer) {
+        val player = exoPlayer ?: return@DisposableEffect onDispose { }
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
@@ -373,126 +395,165 @@ private fun DirectPlayer(
                 onError(error.message ?: "Falha ao reproduzir esta fonte.")
             }
         }
-        exoPlayer.addListener(listener)
+        player.addListener(listener)
         onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
+            player.removeListener(listener)
+            player.release()
         }
     }
 
-    Box(
-        modifier = modifier
-            .pointerInput(Unit) {
-                detectTapGestures { showControls = !showControls }
-            }
-    ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    player = exoPlayer
+    when {
+        resolving -> {
+            Box(modifier = modifier, contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color.White)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Preparando o vídeo...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
                 }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        if (buffering && !ended) {
-            CircularProgressIndicator(
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(46.dp)
-            )
+            }
         }
 
-        if (showControls) {
+        resolveError != null -> {
+            Box(modifier = modifier, contentAlignment = Alignment.Center) {
+                Text(
+                    text = "Não foi possível preparar esta fonte. Toque em Fontes para escolher outra.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+            }
+        }
+
+        exoPlayer == null -> {
+            Box(modifier = modifier, contentAlignment = Alignment.Center) {
+                Text(
+                    text = "Não foi possível abrir esta fonte. Toque em Fontes para escolher outra.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White
+                )
+            }
+        }
+
+        else -> {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.65f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.78f)
-                        )
-                    )
+                modifier = modifier
+                    .pointerInput(Unit) {
+                        detectTapGestures { showControls = !showControls }
+                    }
             ) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(26.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ControlButton(Icons.Rounded.Replay10, "Voltar 10s") {
-                        exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L))
-                        showControls = true
-                    }
-                    IconButton(
-                        onClick = {
-                            if (ended) {
-                                exoPlayer.seekTo(0L)
-                                exoPlayer.play()
-                                ended = false
-                            } else if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                            } else {
-                                exoPlayer.play()
-                            }
-                            showControls = true
-                        },
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            setShutterBackgroundColor(android.graphics.Color.BLACK)
+                            player = exoPlayer
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                if (buffering && !ended) {
+                    CircularProgressIndicator(
+                        color = Color.White,
                         modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.45f))
-                    ) {
-                        Icon(
-                            imageVector = if (ended) Icons.Rounded.Replay else if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (isPlaying) "Pausar" else "Reproduzir",
-                            tint = Color.White,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-                    ControlButton(Icons.Rounded.Forward10, "Avançar 10s") {
-                        exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(duration.coerceAtLeast(0L)))
-                        showControls = true
-                    }
+                            .align(Alignment.Center)
+                            .size(46.dp)
+                    )
                 }
 
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = formatTime(position),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White
-                    )
-                    Slider(
-                        value = if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f,
-                        onValueChange = { fraction ->
-                            if (duration > 0) position = (fraction * duration).toLong()
-                        },
-                        onValueChangeFinished = {
-                            exoPlayer.seekTo(position)
-                            showControls = true
-                        },
+                if (showControls) {
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 10.dp)
-                    )
-                    Text(
-                        text = formatTime(duration),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White
-                    )
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color.Transparent,
+                                    0.65f to Color.Transparent,
+                                    1f to Color.Black.copy(alpha = 0.78f)
+                                )
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(26.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ControlButton(Icons.Rounded.Replay10, "Voltar 10s") {
+                                exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L))
+                                showControls = true
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (ended) {
+                                        exoPlayer.seekTo(0L)
+                                        exoPlayer.play()
+                                        ended = false
+                                    } else if (exoPlayer.isPlaying) {
+                                        exoPlayer.pause()
+                                    } else {
+                                        exoPlayer.play()
+                                    }
+                                    showControls = true
+                                },
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                            ) {
+                                Icon(
+                                    imageVector = if (ended) Icons.Rounded.Replay else if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pausar" else "Reproduzir",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+                            ControlButton(Icons.Rounded.Forward10, "Avançar 10s") {
+                                exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(duration.coerceAtLeast(0L)))
+                                showControls = true
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 18.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = formatTime(position),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White
+                            )
+                            Slider(
+                                value = if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f,
+                                onValueChange = { fraction ->
+                                    if (duration > 0) position = (fraction * duration).toLong()
+                                },
+                                onValueChangeFinished = {
+                                    exoPlayer.seekTo(position)
+                                    showControls = true
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 10.dp)
+                            )
+                            Text(
+                                text = formatTime(duration),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -513,59 +574,6 @@ private fun ControlButton(
             .background(Color.Black.copy(alpha = 0.38f))
     ) {
         Icon(icon, contentDescription = description, tint = Color.White)
-    }
-}
-
-@Composable
-private fun WebPlayer(stream: Stream, modifier: Modifier = Modifier) {
-    val url = stream.playTarget ?: return
-    var loading by remember(url) { mutableStateOf(true) }
-
-    Box(modifier = modifier.background(Color.Black)) {
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    settings.loadsImagesAutomatically = true
-                    settings.setSupportMultipleWindows(false)
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            loading = false
-                        }
-                    }
-                    webChromeClient = WebChromeClient()
-                    if (stream.headers.isNotEmpty()) {
-                        loadUrl(url, stream.headers)
-                    } else {
-                        loadUrl(url)
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-        if (loading) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = "Abrindo player...",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White
-                )
-            }
-        }
     }
 }
 
@@ -602,7 +610,9 @@ private fun SourcesSheet(
             }
             Spacer(Modifier.height(8.dp))
             streams.forEach { stream ->
-                val active = stream.url == selected?.url && stream.type == selected?.type
+                val active = stream.url == selected?.url &&
+                    stream.embed == selected?.embed &&
+                    stream.type == selected?.type
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -642,7 +652,7 @@ private fun SourcesSheet(
                 Spacer(Modifier.height(4.dp))
             }
             Text(
-                text = "Fontes com selo HD costumam ser mais estáveis. Se uma falhar, o app tenta a próxima automaticamente.",
+                text = "Se uma fonte falhar, o app tenta a próxima automaticamente.",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 10.dp)
@@ -653,10 +663,10 @@ private fun SourcesSheet(
 
 private fun sourceSubtitle(stream: Stream): String {
     val parts = mutableListOf<String>()
-    if (stream.isDirect) {
-        parts.add(if (stream.type == "hls") "HLS" else "MP4")
-    } else {
-        parts.add("Embed")
+    when {
+        stream.isDirect -> parts.add(if (stream.type == "hls") "HLS" else "MP4")
+        stream.type == "resolver" -> parts.add("MP4")
+        else -> parts.add("Embed")
     }
     stream.quality?.let { parts.add(it) }
     stream.audio?.let {
@@ -692,11 +702,5 @@ private fun formatTime(milliseconds: Long): String {
         String.format("%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format("%d:%02d", minutes, seconds)
-    }
-}
-
-private fun openExternal(context: Context, url: String) {
-    runCatching {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 }

@@ -289,6 +289,7 @@ data class Stream(
     val type: String = "iframe",
     val url: String? = null,
     val embed: String? = null,
+    val resolver: String? = null,
     val quality: String? = null,
     val height: Int? = null,
     val language: String? = null,
@@ -300,6 +301,8 @@ data class Stream(
     val score: Int = 0
 ) {
     val isDirect: Boolean get() = (type == "hls" || type == "mp4") && !url.isNullOrBlank()
+    val isPlayable: Boolean get() =
+        isDirect || (type == "resolver" && !resolver.isNullOrBlank() && !embed.isNullOrBlank())
     val playTarget: String? get() = url ?: embed
 }
 
