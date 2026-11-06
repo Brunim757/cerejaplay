@@ -1,11 +1,6 @@
 package com.cerejaplay.app.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
@@ -23,6 +18,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -54,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cerejaplay.app.R
 import com.cerejaplay.app.data.model.MediaCard
+import com.cerejaplay.app.ui.theme.CondensedDisplay
 
 /**
  * Marca da CerejaPlay: a cereja com play + o wordmark.
@@ -83,23 +82,23 @@ fun CerejaWordmark(
         Icon(
             painter = painterResource(id = R.drawable.ic_cereja_logo),
             contentDescription = null,
-            modifier = Modifier.size((fontSize.value * 1.55f).dp),
+            modifier = Modifier.size((fontSize.value * 1.45f).dp),
             tint = Color.Unspecified
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(7.dp))
         Text(
             text = "CEREJA",
             color = tint,
             fontSize = fontSize,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.1.sp
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp
         )
         Text(
             text = "PLAY",
             color = MaterialTheme.colorScheme.primary,
             fontSize = fontSize,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.1.sp
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp
         )
     }
 }
@@ -115,8 +114,8 @@ fun CerejaTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(62.dp)
-            .padding(horizontal = 10.dp),
+            .height(60.dp)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onBack != null) {
@@ -125,7 +124,7 @@ fun CerejaTopBar(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    .background(Color.White.copy(alpha = 0.08f))
             ) {
                 Icon(
                     imageVector = Icons.Rounded.ArrowBack,
@@ -133,10 +132,9 @@ fun CerejaTopBar(
                     tint = contentColor
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
         }
         if (showBrand) {
-            Spacer(Modifier.width(2.dp))
             CerejaWordmark(tint = contentColor)
         } else {
             Text(
@@ -164,17 +162,9 @@ fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(start = 18.dp, end = 12.dp, top = 16.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(21.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(MaterialTheme.colorScheme.primary)
-        )
-        Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -198,18 +188,18 @@ fun SectionHeader(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
                     .clickable(onClick = onAction)
-                    .padding(start = 8.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                    .padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = actionLabel,
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Icon(
                     imageVector = Icons.Rounded.ChevronRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -223,8 +213,8 @@ fun RatingBadge(rating: Double, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
-        color = Color.Black.copy(alpha = 0.62f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f))
+        color = Color.Black.copy(alpha = 0.66f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
@@ -233,7 +223,7 @@ fun RatingBadge(rating: Double, modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Rounded.Star,
                 contentDescription = null,
-                tint = Color(0xFFF6C453),
+                tint = Color(0xFFF5C451),
                 modifier = Modifier.size(11.dp)
             )
             Spacer(Modifier.width(3.dp))
@@ -258,14 +248,14 @@ fun TypePill(type: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
     }
 }
@@ -275,16 +265,18 @@ fun PosterCard(
     card: MediaCard,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    width: Dp? = 132.dp
+    width: Dp? = 138.dp,
+    showType: Boolean = true,
+    onRemove: (() -> Unit)? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.965f else 1f,
-        animationSpec = tween(durationMillis = 120),
+        animationSpec = tween(durationMillis = 110),
         label = "poster-scale"
     )
-    val shape = RoundedCornerShape(15.dp)
+    val shape = RoundedCornerShape(14.dp)
     Column(
         modifier = modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
@@ -298,75 +290,20 @@ fun PosterCard(
                 onClick = onClick
             )
     ) {
-        Box(
+        PosterArt(
+            poster = card.poster,
+            title = card.title,
+            rating = card.rating,
+            type = if (showType) card.type else null,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(0.6.dp, Color.White.copy(alpha = 0.08f), shape)
-        ) {
-            AsyncImage(
-                model = card.poster,
-                contentDescription = card.title,
-                contentScale = ContentScale.Crop,
-                placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
-                error = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxSize()
-            )
-            if (card.poster.isNullOrBlank()) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_cereja_logo),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.22f),
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(52.dp)
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.55f)
-                        )
-                    )
-            )
-            RatingBadge(
-                rating = card.rating,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(7.dp)
-            )
-            TypePill(
-                type = card.type,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(7.dp)
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.94f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-        }
-        Spacer(Modifier.height(7.dp))
+                .aspectRatio(2f / 3f),
+            shape = shape,
+            onRemove = onRemove
+        )
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = card.title,
+            text = card.title.cleanMediaTitle(),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
@@ -374,29 +311,178 @@ fun PosterCard(
             overflow = TextOverflow.Ellipsis
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (card.year != null) {
+            card.year?.let {
                 Text(
-                    text = card.year.toString(),
+                    text = it.toString(),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }
-            if (card.year != null && !card.slug.isNullOrBlank()) {
+            if (card.year != null && card.seasons != null) {
                 Text(
                     text = "  •  ",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
             }
-            if (!card.slug.isNullOrBlank()) {
+            card.seasons?.takeIf { it > 0 }?.let {
                 Text(
-                    text = "Coleção",
+                    text = "$it temporadas",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PosterArt(
+    poster: String?,
+    title: String,
+    rating: Double,
+    type: String?,
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(14.dp),
+    onRemove: (() -> Unit)? = null
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(0.6.dp, Color.White.copy(alpha = 0.07f), shape)
+    ) {
+        AsyncImage(
+            model = poster,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+            error = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxSize()
+        )
+        if (poster.isNullOrBlank()) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_cereja_logo),
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.20f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(52.dp)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.58f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.52f)
+                    )
+                )
+        )
+        RatingBadge(
+            rating = rating,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(7.dp)
+        )
+        if (type != null) {
+            TypePill(
+                type = type,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(7.dp)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp)
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.92f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = null,
+                tint = Color(0xFF101016),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        if (onRemove != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.58f))
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Bookmark,
+                    contentDescription = "Remover da minha lista",
+                    tint = Color.White,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Card de ranking no estilo "Top 10": número gigante atrás do pôster.
+ */
+@Composable
+fun TopRankCard(
+    rank: Int,
+    card: MediaCard,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .width(154.dp)
+            .height(212.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            text = rank.toString(),
+            fontFamily = CondensedDisplay,
+            fontWeight = FontWeight.Black,
+            fontSize = 124.sp,
+            lineHeight = 118.sp,
+            letterSpacing = (-4).sp,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(y = 6.dp)
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 4.dp, end = 2.dp)
+                .width(105.dp)
+                .aspectRatio(2f / 3f)
+                .graphicsLayer {
+                    shadowElevation = 10.dp.toPx()
+                    shape = RoundedCornerShape(13.dp)
+                    clip = true
+                }
+        ) {
+            PosterArt(
+                poster = card.poster,
+                title = card.title,
+                rating = card.rating,
+                type = null,
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(13.dp)
+            )
         }
     }
 }
@@ -408,9 +494,11 @@ fun LandscapeCard(
     image: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    width: Dp = 232.dp
+    width: Dp = 246.dp,
+    progress: Float = 0f,
+    badge: String? = null
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(14.dp)
     Column(
         modifier = modifier
             .width(width)
@@ -422,7 +510,7 @@ fun LandscapeCard(
                 .height(width * 0.5625f)
                 .clip(shape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(0.6.dp, Color.White.copy(alpha = 0.08f), shape)
+                .border(0.6.dp, Color.White.copy(alpha = 0.07f), shape)
         ) {
             AsyncImage(
                 model = image,
@@ -436,16 +524,35 @@ fun LandscapeCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
-                        Brush.horizontalGradient(
-                            listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent)
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.55f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.62f)
                         )
                     )
             )
+            if (badge != null) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(9.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(10.dp)
-                    .size(34.dp)
+                    .padding(9.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.92f)),
                 contentAlignment = Alignment.Center
@@ -453,9 +560,25 @@ fun LandscapeCard(
                 Icon(
                     imageVector = Icons.Rounded.PlayArrow,
                     contentDescription = null,
-                    tint = Color(0xFF111116),
-                    modifier = Modifier.size(21.dp)
+                    tint = Color(0xFF101016),
+                    modifier = Modifier.size(20.dp)
                 )
+            }
+            if (progress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(Color.White.copy(alpha = 0.22f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .height(4.dp)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
             }
         }
         Spacer(Modifier.height(7.dp))
@@ -483,8 +606,6 @@ fun SkeletonBox(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(12.dp)
 ) {
-    // Sem animação infinita: vários skeletons animando ao mesmo tempo
-    // custavam caro em aparelhos modestos e causavam engasgos na abertura.
     Box(
         modifier = modifier
             .clip(shape)
@@ -499,19 +620,19 @@ fun PosterCardSkeleton(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f),
-            shape = RoundedCornerShape(15.dp)
+            shape = RoundedCornerShape(14.dp)
         )
         Spacer(Modifier.height(8.dp))
         SkeletonBox(
             modifier = Modifier
-                .fillMaxWidth(0.86f)
+                .fillMaxWidth(0.88f)
                 .height(12.dp),
             shape = RoundedCornerShape(5.dp)
         )
         Spacer(Modifier.height(5.dp))
         SkeletonBox(
             modifier = Modifier
-                .fillMaxWidth(0.45f)
+                .fillMaxWidth(0.44f)
                 .height(9.dp),
             shape = RoundedCornerShape(5.dp)
         )
@@ -551,7 +672,12 @@ fun LoadingState(message: String = "Carregando...", modifier: Modifier = Modifie
 }
 
 @Composable
-fun ErrorState(message: String, onRetry: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+fun ErrorState(
+    message: String,
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    title: String = "Não foi possível carregar"
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -575,7 +701,7 @@ fun ErrorState(message: String, onRetry: (() -> Unit)? = null, modifier: Modifie
         }
         Spacer(Modifier.height(18.dp))
         Text(
-            text = "Não foi possível carregar",
+            text = title,
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center
@@ -604,7 +730,14 @@ fun ErrorState(message: String, onRetry: (() -> Unit)? = null, modifier: Modifie
 }
 
 @Composable
-fun EmptyState(message: String, modifier: Modifier = Modifier) {
+fun EmptyState(
+    message: String,
+    modifier: Modifier = Modifier,
+    title: String = "Nada por aqui",
+    icon: ImageVector = Icons.Rounded.SearchOff,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -620,7 +753,7 @@ fun EmptyState(message: String, modifier: Modifier = Modifier) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Rounded.SearchOff,
+                imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(32.dp)
@@ -628,7 +761,7 @@ fun EmptyState(message: String, modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.height(18.dp))
         Text(
-            text = "Nada por aqui",
+            text = title,
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center
@@ -640,5 +773,50 @@ fun EmptyState(message: String, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = onAction,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text(actionLabel, fontWeight = FontWeight.Bold)
+            }
+        }
     }
+}
+
+/**
+ * Os catálogos costumam trazer sufixos de SEO no título ("Dublado",
+ * "Todos os Episódios Online", etc.). Eles não fazem parte do nome da obra.
+ */
+fun String.cleanMediaTitle(): String {
+    val cleaned = this
+        .replace(
+            Regex(
+                """\s*[-–—|:]\s*(todos os epis[oó]dios.*|assistir.*|online.*|dublado.*|legendado.*)$""",
+                RegexOption.IGNORE_CASE
+            ),
+            ""
+        )
+        .replace(
+            Regex(
+                """\s*\((?:dublado|legendado|online|completo|todos os epis[oó]dios[^)]*)\)\s*""",
+                RegexOption.IGNORE_CASE
+            ),
+            " "
+        )
+        .replace(
+            Regex(
+                """\s+(?:dublado|legendado|online|completo|todos os epis[oó]dios(?: online)?)\s*$""",
+                RegexOption.IGNORE_CASE
+            ),
+            ""
+        )
+        .replace(Regex("""\s{2,}"""), " ")
+        .trim(' ', '-', '–', '—', '|', ':')
+    return cleaned.ifBlank { this.trim() }
 }

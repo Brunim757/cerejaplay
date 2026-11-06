@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.cerejaplay.app.data.model.MediaCard
 import com.cerejaplay.app.data.model.MediaDetail
 import com.cerejaplay.app.data.repo.CerejaRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,8 +17,14 @@ data class DetailUiState(
     val detail: MediaDetail? = null,
     val loading: Boolean = true,
     val error: String? = null,
-    val selectedSeason: Int = 1
-)
+    val selectedSeason: Int = 1,
+    val favorites: List<MediaCard> = emptyList()
+) {
+    val isFavorite: Boolean
+        get() = detail != null && favorites.any {
+            it.type == detail.type && it.stableId == detail.id
+        }
+}
 
 class DetailViewModel(private val repository: CerejaRepository) : ViewModel() {
 
@@ -25,6 +32,14 @@ class DetailViewModel(private val repository: CerejaRepository) : ViewModel() {
     val state: StateFlow<DetailUiState> = _state.asStateFlow()
 
     private var loadedKey: String? = null
+
+    init {
+        viewModelScope.launch {
+            repository.favorites.collect { favorites ->
+                _state.update { it.copy(favorites = favorites) }
+            }
+        }
+    }
 
     fun load(endpoint: String, type: String, id: String, force: Boolean = false) {
         val key = "$type:$id"
@@ -49,9 +64,29 @@ class DetailViewModel(private val repository: CerejaRepository) : ViewModel() {
         _state.update { it.copy(selectedSeason = number) }
     }
 
+    fun toggleFavorite() {
+        val detail = _state.value.detail ?: return
+        viewModelScope.launch { repository.toggleFavorite(detail.toCard()) }
+    }
+
     companion object {
         fun factory(repository: CerejaRepository) = viewModelFactory {
             initializer { DetailViewModel(repository) }
         }
     }
 }
+
+private fun MediaDetail.toCard(): MediaCard = MediaCard(
+    id = id,
+    type = type,
+    title = title,
+    year = year,
+    poster = poster,
+    backdrop = backdrop,
+    rating = rating,
+    overview = overview,
+    seasons = seasons.size.takeIf { it > 0 },
+    episodes = totalEpisodes.takeIf { it > 0 },
+    detailEndpoint = detailEndpoint,
+    watchEndpoint = watchEndpoint
+)

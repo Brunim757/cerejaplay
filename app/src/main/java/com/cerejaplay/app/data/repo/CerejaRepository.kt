@@ -19,6 +19,7 @@ import com.cerejaplay.app.data.model.UserSettings
 import com.cerejaplay.app.data.model.WatchResponse
 import com.cerejaplay.app.data.prefs.UserPreferences
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 import retrofit2.HttpException
 import java.io.IOException
@@ -65,6 +66,8 @@ class CerejaRepository(
 
     val settings: Flow<UserSettings> = preferences.settings
     val history: Flow<List<HistoryItem>> = preferences.history
+    val favorites: Flow<List<MediaCard>> = preferences.favorites
+    val recentSearches: Flow<List<String>> = preferences.recentSearches
 
     suspend fun loadConfig(): AppConfig {
         val remote = service.config().data
@@ -166,6 +169,32 @@ class CerejaRepository(
                 updatedAt = System.currentTimeMillis()
             )
         )
+    }
+
+    suspend fun toggleFavorite(card: MediaCard) = preferences.toggleFavorite(card)
+
+    suspend fun addRecentSearch(query: String) = preferences.addRecentSearch(query)
+
+    suspend fun clearRecentSearches() = preferences.clearRecentSearches()
+
+    suspend fun saveProgress(
+        type: String,
+        id: String,
+        season: Int?,
+        episode: Int?,
+        positionMs: Long,
+        durationMs: Long
+    ) = preferences.updateProgress(type, id, season, episode, positionMs, durationMs)
+
+    suspend fun resumePosition(type: String, id: String, season: Int?, episode: Int?): Long {
+        val item = preferences.history.first().firstOrNull {
+            it.type == type && it.id == id && it.season == season && it.episode == episode
+        } ?: return 0L
+        if (item.durationMs <= 0L) return 0L
+        // Não retoma se estiver no começo ou praticamente no fim.
+        if (item.positionMs < 5_000L) return 0L
+        if (item.positionMs >= item.durationMs - 10_000L) return 0L
+        return item.positionMs
     }
 
     suspend fun updateAudio(value: String) = preferences.updateAudio(value)

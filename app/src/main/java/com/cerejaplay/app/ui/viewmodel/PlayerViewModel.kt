@@ -22,7 +22,8 @@ data class PlayerUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val selected: Stream? = null,
-    val switching: Boolean = false
+    val switching: Boolean = false,
+    val startPositionMs: Long = 0L
 )
 
 class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
@@ -40,7 +41,8 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
         val season: Int?,
         val episode: Int?,
         val title: String,
-        val poster: String?
+        val poster: String?,
+        val backdrop: String?
     )
 
     private var request: Request? = null
@@ -52,9 +54,10 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
         season: Int?,
         episode: Int?,
         title: String,
-        poster: String?
+        poster: String?,
+        backdrop: String?
     ) {
-        request = Request(endpoint, type, id, season, episode, title, poster)
+        request = Request(endpoint, type, id, season, episode, title, poster, backdrop)
         execute()
     }
 
@@ -83,6 +86,20 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
 
     fun dismissError() {
         _state.update { it.copy(error = null) }
+    }
+
+    fun saveProgress(positionMs: Long, durationMs: Long) {
+        val current = request ?: return
+        viewModelScope.launch {
+            repository.saveProgress(
+                type = current.type,
+                id = current.id,
+                season = current.season,
+                episode = current.episode,
+                positionMs = positionMs,
+                durationMs = durationMs
+            )
+        }
     }
 
     fun setAudio(value: String) = viewModelScope.launch {
@@ -137,13 +154,20 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                     }
                     return@onSuccess
                 }
+                val resumeAt = repository.resumePosition(
+                    type = current.type,
+                    id = current.id,
+                    season = current.season,
+                    episode = current.episode
+                )
                 val resolved = payload.copy(streams = playable, best = best)
                 _state.update {
                     it.copy(
                         watch = resolved,
                         loading = false,
                         error = null,
-                        selected = best
+                        selected = best,
+                        startPositionMs = resumeAt
                     )
                 }
                 repository.recordRaw(
@@ -151,7 +175,7 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                     id = current.id,
                     title = payload.title ?: current.title,
                     poster = current.poster,
-                    backdrop = null,
+                    backdrop = current.backdrop,
                     season = current.season?.takeIf { it > 0 },
                     episode = current.episode?.takeIf { it > 0 }
                 )

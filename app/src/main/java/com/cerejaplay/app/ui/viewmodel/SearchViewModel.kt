@@ -9,8 +9,10 @@ import com.cerejaplay.app.data.repo.CerejaRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -31,6 +33,9 @@ class SearchViewModel(private val repository: CerejaRepository) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
+    val recents: StateFlow<List<String>> = repository.recentSearches
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private var job: Job? = null
     private var endpoint: String? = null
 
@@ -50,6 +55,23 @@ class SearchViewModel(private val repository: CerejaRepository) : ViewModel() {
             delay(420)
             execute(trimmed)
         }
+    }
+
+    fun submit() {
+        val trimmed = _query.value.trim()
+        if (trimmed.length < 2) return
+        viewModelScope.launch { repository.addRecentSearch(trimmed) }
+        job?.cancel()
+        job = viewModelScope.launch { execute(trimmed) }
+    }
+
+    fun useSuggestion(value: String) {
+        _query.value = value
+        submit()
+    }
+
+    fun clearRecents() {
+        viewModelScope.launch { repository.clearRecentSearches() }
     }
 
     fun retry() {

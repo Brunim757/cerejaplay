@@ -2,103 +2,125 @@ package com.cerejaplay.app.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.cerejaplay.app.R
 
-private val Sans = FontFamily.SansSerif
+val Manrope = FontFamily(
+    Font(R.font.manrope_regular, FontWeight.Normal),
+    Font(R.font.manrope_medium, FontWeight.Medium),
+    Font(R.font.manrope_semibold, FontWeight.SemiBold),
+    Font(R.font.manrope_bold, FontWeight.Bold),
+    Font(R.font.manrope_extrabold, FontWeight.ExtraBold)
+)
+
+val CondensedDisplay = FontFamily(
+    Font(R.font.barlowcondensed_black, FontWeight.Black),
+    Font(R.font.barlowcondensed_extrabold, FontWeight.ExtraBold),
+    Font(R.font.barlowcondensed_bold, FontWeight.Bold)
+)
 
 val CerejaTypography = Typography(
     displayLarge = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.Black,
-        fontSize = 42.sp,
-        lineHeight = 46.sp,
-        letterSpacing = (-1.0).sp
+        fontFamily = Manrope,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 44.sp,
+        lineHeight = 47.sp,
+        letterSpacing = (-1.4).sp
     ),
     displayMedium = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.Black,
+        fontFamily = Manrope,
+        fontWeight = FontWeight.ExtraBold,
         fontSize = 34.sp,
         lineHeight = 38.sp,
+        letterSpacing = (-1.0).sp
+    ),
+    displaySmall = TextStyle(
+        fontFamily = Manrope,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 28.sp,
+        lineHeight = 32.sp,
         letterSpacing = (-0.6).sp
     ),
     headlineLarge = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.Bold,
-        fontSize = 30.sp,
-        lineHeight = 34.sp,
-        letterSpacing = (-0.4).sp
+        fontFamily = Manrope,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 29.sp,
+        lineHeight = 33.sp,
+        letterSpacing = (-0.7).sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.Bold,
-        fontSize = 24.sp,
-        lineHeight = 29.sp,
-        letterSpacing = (-0.2).sp
+        fontSize = 23.sp,
+        lineHeight = 28.sp,
+        letterSpacing = (-0.4).sp
     ),
     headlineSmall = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 25.sp
-    ),
-    titleLarge = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.Bold,
-        fontSize = 21.sp,
-        lineHeight = 27.sp,
+        fontSize = 20.sp,
+        lineHeight = 25.sp,
         letterSpacing = (-0.2).sp
     ),
+    titleLarge = TextStyle(
+        fontFamily = Manrope,
+        fontWeight = FontWeight.Bold,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = (-0.3).sp
+    ),
     titleMedium = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
+        fontSize = 15.5.sp,
         lineHeight = 22.sp
     ),
     titleSmall = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
+        fontSize = 13.5.sp,
         lineHeight = 19.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         lineHeight = 23.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 21.sp
+        fontSize = 13.5.sp,
+        lineHeight = 20.5.sp
     ),
     bodySmall = TextStyle(
-        fontFamily = Sans,
+        fontFamily = Manrope,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 17.sp
     ),
     labelLarge = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.SemiBold,
+        fontFamily = Manrope,
+        fontWeight = FontWeight.Bold,
         fontSize = 13.sp,
         lineHeight = 17.sp,
         letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.Medium,
+        fontFamily = Manrope,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 11.5.sp,
         lineHeight = 15.sp,
-        letterSpacing = 0.2.sp
+        letterSpacing = 0.15.sp
     ),
     labelSmall = TextStyle(
-        fontFamily = Sans,
-        fontWeight = FontWeight.Medium,
+        fontFamily = Manrope,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 10.5.sp,
         lineHeight = 13.sp,
-        letterSpacing = 0.3.sp
+        letterSpacing = 0.25.sp
     )
 )

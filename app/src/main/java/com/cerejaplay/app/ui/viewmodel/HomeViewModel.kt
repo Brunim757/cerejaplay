@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.cerejaplay.app.data.model.HistoryItem
 import com.cerejaplay.app.data.model.HomeRow
+import com.cerejaplay.app.data.model.MediaCard
 import com.cerejaplay.app.data.model.UserSettings
 import com.cerejaplay.app.data.repo.CerejaRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 data class HomeUiState(
     val rows: List<HomeRow> = emptyList(),
     val history: List<HistoryItem> = emptyList(),
+    val favorites: List<MediaCard> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null
 )
@@ -37,6 +39,11 @@ class HomeViewModel(private val repository: CerejaRepository) : ViewModel() {
         viewModelScope.launch {
             repository.history.collect { history ->
                 _state.update { it.copy(history = history) }
+            }
+        }
+        viewModelScope.launch {
+            repository.favorites.collect { favorites ->
+                _state.update { it.copy(favorites = favorites) }
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.cerejaplay.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -60,14 +63,17 @@ import com.cerejaplay.app.ui.components.PosterCardSkeleton
 import com.cerejaplay.app.ui.components.SectionHeader
 import com.cerejaplay.app.ui.components.SettingsSheet
 import com.cerejaplay.app.ui.components.SkeletonBox
+import com.cerejaplay.app.ui.components.TopRankCard
+import com.cerejaplay.app.ui.components.cleanMediaTitle
 import com.cerejaplay.app.ui.viewmodel.HomeViewModel
 
 @Composable
 fun HomeScreen(
     repository: CerejaRepository,
     onOpenDetail: (String, String) -> Unit,
-    onPlay: (String, String, Int, Int, String, String?) -> Unit,
-    onOpenTab: (String) -> Unit
+    onPlay: (String, String, Int, Int, String, String?, String?) -> Unit,
+    onOpenTab: (String) -> Unit,
+    onOpenMyList: () -> Unit
 ) {
     val config = LocalAppConfig.current
     val viewModel: HomeViewModel = viewModel(factory = HomeViewModel.factory(repository))
@@ -95,7 +101,10 @@ fun HomeScreen(
     val heroItems = remember(state.rows) {
         val buckets = state.rows.map { row ->
             row.items
-                .filter { it.stableId.isNotBlank() && !it.backdrop.isNullOrBlank() }
+                .filter {
+                    it.stableId.isNotBlank() &&
+                        (!it.backdrop.isNullOrBlank() || !it.poster.isNullOrBlank())
+                }
                 .take(4)
         }
         val picked = mutableListOf<MediaCard>()
@@ -109,16 +118,37 @@ fun HomeScreen(
         picked.distinctBy { "${it.type}:${it.stableId}" }.take(6)
     }
 
+    val top10 = remember(state.rows) {
+        state.rows
+            .firstOrNull { it.mediaType == "movie" }
+            ?.items
+            ?.distinctBy { "${it.type}:${it.stableId}" }
+            ?.take(10)
+            .orEmpty()
+    }
+
+    val acclaimed = remember(state.rows) {
+        state.rows
+            .flatMap { it.items }
+            .filter { it.rating >= 7.8 && it.stableId.isNotBlank() }
+            .distinctBy { "${it.type}:${it.stableId}" }
+            .sortedByDescending { it.rating }
+            .take(14)
+    }
+
     val catalogTabs = remember(config.tabs) {
         config.tabs.filter { it.type == "catalog" && it.mediaType != null }
     }
+    val searchTab = remember(config.tabs) { config.tabs.firstOrNull { it.type == "search" } }
 
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.loading && state.rows.isEmpty() -> {
                 HomeSkeleton(
                     appName = config.appName,
-                    onSettings = { showSettings = true }
+                    onSettings = { showSettings = true },
+                    onOpenMyList = onOpenMyList,
+                    onSearch = { searchTab?.let { onOpenTab(it.id) } }
                 )
             }
 
@@ -147,7 +177,7 @@ fun HomeScreen(
             else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 32.dp)
+                    contentPadding = PaddingValues(bottom = 34.dp)
                 ) {
                     item(key = "hero") {
                         Box(modifier = Modifier.fillMaxWidth()) {
@@ -160,8 +190,9 @@ fun HomeScreen(
                                         card.stableId,
                                         if (seriesLike) 1 else 0,
                                         if (seriesLike) 1 else 0,
-                                        card.title,
-                                        card.poster
+                                        card.title.cleanMediaTitle(),
+                                        card.poster,
+                                        card.backdrop
                                     )
                                 },
                                 onDetails = { card -> onOpenDetail(card.type, card.stableId) }
@@ -184,12 +215,15 @@ fun HomeScreen(
                                         RoundIconButton(
                                             icon = Icons.Rounded.Search,
                                             description = "Buscar",
-                                            onClick = {
-                                                config.tabs.firstOrNull { it.type == "search" }
-                                                    ?.let { onOpenTab(it.id) }
-                                            }
+                                            onClick = { searchTab?.let { onOpenTab(it.id) } }
                                         )
-                                        Spacer(Modifier.width(4.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        RoundIconButton(
+                                            icon = Icons.Rounded.BookmarkBorder,
+                                            description = "Minha lista",
+                                            onClick = onOpenMyList
+                                        )
+                                        Spacer(Modifier.width(6.dp))
                                         RoundIconButton(
                                             icon = Icons.Rounded.Settings,
                                             description = "Preferências",
@@ -204,9 +238,9 @@ fun HomeScreen(
                     if (catalogTabs.isNotEmpty()) {
                         item(key = "category-chips") {
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                contentPadding = PaddingValues(horizontal = 18.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+                                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
                             ) {
                                 itemsIndexed(catalogTabs, key = { _, tab -> "chip-${tab.id}" }) { _, tab ->
                                     CategoryChip(
@@ -220,15 +254,21 @@ fun HomeScreen(
                                         onClick = { onOpenTab(tab.id) }
                                     )
                                 }
-                                item(key = "chip-search") {
+                                item(key = "chip-my-list") {
                                     CategoryChip(
-                                        label = "Buscar",
-                                        icon = Icons.Rounded.Search,
-                                        onClick = {
-                                            config.tabs.firstOrNull { it.type == "search" }
-                                                ?.let { onOpenTab(it.id) }
-                                        }
+                                        label = "Minha lista",
+                                        icon = Icons.Rounded.Bookmark,
+                                        onClick = onOpenMyList
                                     )
+                                }
+                                if (searchTab != null) {
+                                    item(key = "chip-search") {
+                                        CategoryChip(
+                                            label = "Buscar",
+                                            icon = Icons.Rounded.Search,
+                                            onClick = { onOpenTab(searchTab.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -243,7 +283,7 @@ fun HomeScreen(
                         }
                         item(key = "history-row") {
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                contentPadding = PaddingValues(horizontal = 18.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 itemsIndexed(
@@ -251,9 +291,11 @@ fun HomeScreen(
                                     key = { index, item -> "history-$index-${item.key}" }
                                 ) { _, item ->
                                     LandscapeCard(
-                                        title = item.title,
-                                        subtitle = item.episodeLabel ?: "Continuar",
+                                        title = item.title.cleanMediaTitle(),
+                                        subtitle = item.episodeLabel ?: "Assistir novamente",
                                         image = item.backdrop ?: item.poster,
+                                        progress = item.progress,
+                                        badge = if (item.progress > 0f) "CONTINUAR" else null,
                                         onClick = {
                                             val seriesLike = item.type != "movie"
                                             onPlay(
@@ -261,14 +303,70 @@ fun HomeScreen(
                                                 item.id,
                                                 item.season ?: if (seriesLike) 1 else 0,
                                                 item.episode ?: if (seriesLike) 1 else 0,
-                                                item.title,
-                                                item.poster
+                                                item.title.cleanMediaTitle(),
+                                                item.poster,
+                                                item.backdrop
                                             )
                                         }
                                     )
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
+
+                    if (state.favorites.isNotEmpty()) {
+                        item(key = "favorites-header") {
+                            SectionHeader(
+                                title = "Minha lista",
+                                subtitle = "${state.favorites.size} títulos salvos",
+                                actionLabel = "Ver tudo",
+                                onAction = onOpenMyList
+                            )
+                        }
+                        item(key = "favorites-row") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                itemsIndexed(
+                                    state.favorites,
+                                    key = { index, card -> "favorite-$index-${card.type}:${card.stableId}" }
+                                ) { _, card ->
+                                    PosterCard(
+                                        card = card,
+                                        width = 126.dp,
+                                        onClick = { onOpenDetail(card.type, card.stableId) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+
+                    if (top10.isNotEmpty()) {
+                        item(key = "top10-header") {
+                            SectionHeader(
+                                title = "Top 10 da semana",
+                                subtitle = "Os filmes mais assistidos agora"
+                            )
+                        }
+                        item(key = "top10-row") {
+                            LazyRow(
+                                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                itemsIndexed(
+                                    top10,
+                                    key = { index, card -> "top10-$index-${card.type}:${card.stableId}" }
+                                ) { index, card ->
+                                    TopRankCard(
+                                        rank = index + 1,
+                                        card = card,
+                                        onClick = { onOpenDetail(card.type, card.stableId) }
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -286,7 +384,7 @@ fun HomeScreen(
                         }
                         item(key = "row-${row.id}") {
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                contentPadding = PaddingValues(horizontal = 18.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 itemsIndexed(
@@ -295,12 +393,39 @@ fun HomeScreen(
                                 ) { _, card ->
                                     PosterCard(
                                         card = card,
-                                        width = 132.dp,
+                                        width = 138.dp,
                                         onClick = { onOpenDetail(card.type, card.stableId) }
                                     )
                                 }
                             }
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+
+                    if (acclaimed.isNotEmpty()) {
+                        item(key = "acclaimed-header") {
+                            SectionHeader(
+                                title = "Aclamados pelo público",
+                                subtitle = "Notas altas em todo o catálogo"
+                            )
+                        }
+                        item(key = "acclaimed-row") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                itemsIndexed(
+                                    acclaimed,
+                                    key = { index, card -> "acclaimed-$index-${card.type}:${card.stableId}" }
+                                ) { _, card ->
+                                    PosterCard(
+                                        card = card,
+                                        width = 138.dp,
+                                        onClick = { onOpenDetail(card.type, card.stableId) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
                         }
                     }
 
@@ -308,7 +433,7 @@ fun HomeScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 22.dp),
+                                .padding(horizontal = 24.dp, vertical = 26.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             CerejaWordmark(fontSize = 13.sp)
@@ -337,7 +462,7 @@ private fun RoundIconButton(
         onClick = onClick,
         modifier = Modifier
             .size(40.dp)
-            .background(Color.Black.copy(alpha = 0.32f), CircleShape)
+            .background(Color.Black.copy(alpha = 0.30f), CircleShape)
     ) {
         Icon(
             imageVector = icon,
@@ -355,11 +480,11 @@ private fun CategoryChip(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-        border = androidx.compose.foundation.BorderStroke(
+        shape = RoundedCornerShape(13.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+        border = BorderStroke(
             0.6.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)
         ),
         modifier = Modifier.clickable(onClick = onClick)
     ) {
@@ -388,16 +513,24 @@ private fun rowSubtitle(title: String): String? = when {
     title.contains("alta", ignoreCase = true) -> "Em alta agora"
     title.contains("top", ignoreCase = true) -> "Seleção da semana"
     title.contains("anime", ignoreCase = true) -> "Histórias que marcaram época"
+    title.contains("filme", ignoreCase = true) -> "Grandes histórias para assistir hoje"
+    title.contains("série", ignoreCase = true) || title.contains("serie", ignoreCase = true) ->
+        "Maratonas que valem a pena"
     else -> null
 }
 
 @Composable
-private fun HomeSkeleton(appName: String, onSettings: () -> Unit) {
+private fun HomeSkeleton(
+    appName: String,
+    onSettings: () -> Unit,
+    onOpenMyList: () -> Unit,
+    onSearch: () -> Unit
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(540.dp)
+                .height(510.dp)
         ) {
             SkeletonBox(
                 modifier = Modifier.fillMaxSize(),
@@ -408,7 +541,7 @@ private fun HomeSkeleton(appName: String, onSettings: () -> Unit) {
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.35f),
+                            0f to Color.Black.copy(alpha = 0.30f),
                             1f to MaterialTheme.colorScheme.background
                         )
                     )
@@ -424,6 +557,18 @@ private fun HomeSkeleton(appName: String, onSettings: () -> Unit) {
                     contentColor = Color.White,
                     actions = {
                         RoundIconButton(
+                            icon = Icons.Rounded.Search,
+                            description = "Buscar",
+                            onClick = onSearch
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        RoundIconButton(
+                            icon = Icons.Rounded.BookmarkBorder,
+                            description = "Minha lista",
+                            onClick = onOpenMyList
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        RoundIconButton(
                             icon = Icons.Rounded.Settings,
                             description = "Preferências",
                             onClick = onSettings
@@ -434,33 +579,33 @@ private fun HomeSkeleton(appName: String, onSettings: () -> Unit) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 20.dp, vertical = 30.dp)
+                    .padding(horizontal = 20.dp, vertical = 34.dp)
                     .fillMaxWidth()
             ) {
                 SkeletonBox(
                     modifier = Modifier
-                        .width(96.dp)
-                        .height(18.dp),
+                        .width(110.dp)
+                        .height(20.dp),
                     shape = RoundedCornerShape(9.dp)
                 )
                 Spacer(Modifier.height(14.dp))
                 SkeletonBox(
                     modifier = Modifier
-                        .fillMaxWidth(0.72f)
-                        .height(34.dp),
-                    shape = RoundedCornerShape(8.dp)
+                        .fillMaxWidth(0.78f)
+                        .height(38.dp),
+                    shape = RoundedCornerShape(9.dp)
                 )
                 Spacer(Modifier.height(12.dp))
                 SkeletonBox(
                     modifier = Modifier
-                        .fillMaxWidth(0.92f)
+                        .fillMaxWidth(0.94f)
                         .height(13.dp),
                     shape = RoundedCornerShape(6.dp)
                 )
                 Spacer(Modifier.height(6.dp))
                 SkeletonBox(
                     modifier = Modifier
-                        .fillMaxWidth(0.64f)
+                        .fillMaxWidth(0.66f)
                         .height(13.dp),
                     shape = RoundedCornerShape(6.dp)
                 )
@@ -468,13 +613,13 @@ private fun HomeSkeleton(appName: String, onSettings: () -> Unit) {
                 SkeletonBox(
                     modifier = Modifier
                         .width(154.dp)
-                        .height(46.dp),
-                    shape = RoundedCornerShape(14.dp)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(13.dp)
                 )
             }
         }
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             repeat(3) {
@@ -482,26 +627,26 @@ private fun HomeSkeleton(appName: String, onSettings: () -> Unit) {
                     modifier = Modifier
                         .width(98.dp)
                         .height(36.dp),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(13.dp)
                 )
             }
         }
         repeat(2) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             SkeletonBox(
                 modifier = Modifier
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 18.dp)
                     .width(190.dp)
                     .height(24.dp),
                 shape = RoundedCornerShape(6.dp)
             )
             Spacer(Modifier.height(12.dp))
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 repeat(3) {
-                    PosterCardSkeleton(modifier = Modifier.width(112.dp))
+                    PosterCardSkeleton(modifier = Modifier.width(118.dp))
                 }
             }
         }

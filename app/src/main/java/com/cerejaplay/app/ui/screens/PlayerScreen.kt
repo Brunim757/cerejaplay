@@ -32,6 +32,8 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -78,6 +82,7 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.cerejaplay.app.data.model.AudioChoice
 import com.cerejaplay.app.data.model.Stream
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.data.resolve.ResolvedStream
@@ -97,13 +102,18 @@ fun PlayerScreen(
     episode: Int,
     title: String,
     poster: String?,
+    backdrop: String?,
     onBack: () -> Unit
 ) {
     val config = LocalAppConfig.current
     val viewModel: PlayerViewModel = viewModel(factory = PlayerViewModel.factory(repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showSources by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
+    var showAudio by remember { mutableStateOf(false) }
+    var speed by remember { mutableFloatStateOf(1f) }
 
     LaunchedEffect(type, id, season, episode, config.endpoints.watch) {
         viewModel.load(
@@ -113,7 +123,8 @@ fun PlayerScreen(
             season = season.takeIf { it > 0 },
             episode = episode.takeIf { it > 0 },
             title = title,
-            poster = poster
+            poster = poster,
+            backdrop = backdrop
         )
     }
 
@@ -130,6 +141,29 @@ fun PlayerScreen(
                 viewModel.retry()
             },
             onDismiss = { showSources = false }
+        )
+    }
+
+    if (showSpeed) {
+        SpeedSheet(
+            selected = speed,
+            onSelect = {
+                speed = it
+                showSpeed = false
+            },
+            onDismiss = { showSpeed = false }
+        )
+    }
+
+    if (showAudio) {
+        AudioSheet(
+            options = config.preferences.audioOptions,
+            selected = settings.audio,
+            onSelect = {
+                viewModel.setAudio(it)
+                showAudio = false
+            },
+            onDismiss = { showAudio = false }
         )
     }
 
@@ -183,6 +217,9 @@ fun PlayerScreen(
                 DirectPlayer(
                     stream = state.selected!!,
                     autoplay = config.player.autoplay,
+                    startPositionMs = state.startPositionMs,
+                    startSpeed = speed,
+                    onProgress = viewModel::saveProgress,
                     onError = viewModel::onPlaybackError,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -192,7 +229,10 @@ fun PlayerScreen(
         PlayerTopBar(
             title = state.watch?.title ?: title,
             subtitle = episodeLabel(type, state.watch?.season, state.watch?.episode, state.watch?.episodeLabel),
+            speedLabel = formatSpeed(speed),
             onBack = onBack,
+            onSpeed = { showSpeed = true },
+            onAudio = { showAudio = true },
             onSources = { showSources = true }
         )
 
@@ -230,7 +270,10 @@ fun PlayerScreen(
 private fun PlayerTopBar(
     title: String,
     subtitle: String?,
+    speedLabel: String,
     onBack: () -> Unit,
+    onSpeed: () -> Unit,
+    onAudio: () -> Unit,
     onSources: () -> Unit
 ) {
     Box(
@@ -269,6 +312,18 @@ private fun PlayerTopBar(
                     )
                 }
             }
+            PlayerPill(
+                label = speedLabel,
+                icon = Icons.Rounded.Speed,
+                description = "Velocidade de reprodução",
+                onClick = onSpeed
+            )
+            PlayerPill(
+                label = "Áudio",
+                icon = Icons.Rounded.VolumeUp,
+                description = "Escolher áudio",
+                onClick = onAudio
+            )
             IconButton(onClick = onSources) {
                 Icon(Icons.Rounded.FormatListBulleted, contentDescription = "Fontes", tint = Color.White)
             }
@@ -280,13 +335,16 @@ private fun PlayerTopBar(
 private fun DirectPlayer(
     stream: Stream,
     autoplay: Boolean,
+    startPositionMs: Long,
+    startSpeed: Float,
+    onProgress: (Long, Long) -> Unit,
     onError: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showControls by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(false) }
-    var position by remember { mutableLongStateOf(0L) }
+    var position by remember { mutableLongStateOf(startPositionMs) }
     var duration by remember { mutableLongStateOf(0L) }
     var buffering by remember { mutableStateOf(true) }
     var ended by remember { mutableStateOf(false) }
@@ -325,7 +383,7 @@ private fun DirectPlayer(
     }
 
     val media = resolved
-    val exoPlayer = remember(media?.url, media?.headers, stream.type) {
+    val exoPlayer = remember(media?.url, media?.headers, stream.type, startPositionMs) {
         val target = media ?: return@remember null
         runCatching {
             val dataSourceFactory = DefaultHttpDataSource.Factory()
@@ -373,18 +431,31 @@ private fun DirectPlayer(
                 .apply {
                     setMediaSource(source)
                     prepare()
+                    if (startPositionMs > 0L) seekTo(startPositionMs)
+                    setPlaybackSpeed(startSpeed)
                     playWhenReady = autoplay
                 }
         }.getOrNull()
     }
 
+    LaunchedEffect(startSpeed, exoPlayer) {
+        exoPlayer?.setPlaybackSpeed(startSpeed)
+    }
+
     LaunchedEffect(exoPlayer) {
         val player = exoPlayer
         if (player == null) return@LaunchedEffect
+        var lastSaved = position
         while (true) {
             runCatching {
                 position = player.currentPosition.coerceAtLeast(0L)
                 duration = player.duration.coerceAtLeast(0L)
+                // Salva a cada 5 segundos de reprodução real. Isso permite
+                // retomar exatamente de onde parou mesmo sem sair do player.
+                if (player.isPlaying && duration > 0L && kotlin.math.abs(position - lastSaved) >= 5_000L) {
+                    onProgress(position, duration)
+                    lastSaved = position
+                }
             }
             delay(500)
         }
@@ -407,7 +478,14 @@ private fun DirectPlayer(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 buffering = playbackState == Player.STATE_BUFFERING
                 ended = playbackState == Player.STATE_ENDED
-                if (playbackState == Player.STATE_READY) buffering = false
+                if (playbackState == Player.STATE_READY) {
+                    buffering = false
+                    player.setPlaybackSpeed(startSpeed)
+                }
+                if (playbackState == Player.STATE_ENDED) {
+                    val total = player.duration.coerceAtLeast(0L)
+                    if (total > 0L) onProgress(total, total)
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -417,6 +495,9 @@ private fun DirectPlayer(
         player.addListener(listener)
         onDispose {
             player.removeListener(listener)
+            val total = runCatching { player.duration }.getOrDefault(0L)
+            val current = runCatching { player.currentPosition }.getOrDefault(0L)
+            if (total > 0L && current > 0L) onProgress(current, total)
             player.release()
         }
     }
@@ -460,8 +541,19 @@ private fun DirectPlayer(
         else -> {
             Box(
                 modifier = modifier
-                    .pointerInput(Unit) {
-                        detectTapGestures { showControls = !showControls }
+                    .pointerInput(exoPlayer, duration) {
+                        detectTapGestures(
+                            onTap = { showControls = !showControls },
+                            onDoubleTap = { offset ->
+                                val forward = offset.x > size.width / 2f
+                                val delta = if (forward) 10_000L else -10_000L
+                                val target = (exoPlayer.currentPosition + delta)
+                                    .coerceIn(0L, duration.coerceAtLeast(0L))
+                                exoPlayer.seekTo(target)
+                                position = target
+                                showControls = true
+                            }
+                        )
                     }
             ) {
                 AndroidView(
@@ -581,7 +673,7 @@ private fun DirectPlayer(
 
 @Composable
 private fun ControlButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     description: String,
     onClick: () -> Unit
 ) {
@@ -593,6 +685,184 @@ private fun ControlButton(
             .background(Color.Black.copy(alpha = 0.38f))
     ) {
         Icon(icon, contentDescription = description, tint = Color.White)
+    }
+}
+
+@Composable
+private fun PlayerPill(
+    label: String,
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.Black.copy(alpha = 0.38f),
+        modifier = Modifier
+            .padding(horizontal = 2.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = Color.White.copy(alpha = 0.86f),
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeedSheet(
+    selected: Float,
+    onSelect: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 18.dp)
+        ) {
+            Text(
+                text = "Velocidade de reprodução",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(10.dp))
+            listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { option ->
+                val active = kotlin.math.abs(option - selected) < 0.01f
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelect(option) }
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else Color.Transparent
+                        )
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Speed,
+                        contentDescription = null,
+                        tint = if (active) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = formatSpeed(option),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (active) {
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AudioSheet(
+    options: List<AudioChoice>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val choices = options.ifEmpty {
+        listOf(
+            AudioChoice("dub", "Dublado"),
+            AudioChoice("sub", "Legendado"),
+            AudioChoice("original", "Original")
+        )
+    }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 18.dp)
+        ) {
+            Text(
+                text = "Áudio preferido",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "O app busca fontes nesse idioma ao reproduzir.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(10.dp))
+            choices.forEach { choice ->
+                val active = choice.id == selected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelect(choice.id) }
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else Color.Transparent
+                        )
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.VolumeUp,
+                        contentDescription = null,
+                        tint = if (active) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = choice.label.ifBlank { choice.id },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (active) {
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -721,5 +991,18 @@ private fun formatTime(milliseconds: Long): String {
         String.format("%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format("%d:%02d", minutes, seconds)
+    }
+}
+
+private fun formatSpeed(speed: Float): String {
+    return when (speed) {
+        0.5f -> "0,5x"
+        0.75f -> "0,75x"
+        1f -> "1x"
+        1.25f -> "1,25x"
+        1.5f -> "1,5x"
+        1.75f -> "1,75x"
+        2f -> "2x"
+        else -> "${speed}x"
     }
 }

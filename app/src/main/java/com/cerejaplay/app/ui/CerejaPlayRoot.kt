@@ -7,6 +7,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +77,7 @@ import com.cerejaplay.app.ui.components.CerejaWordmark
 import com.cerejaplay.app.ui.screens.CatalogScreen
 import com.cerejaplay.app.ui.screens.DetailScreen
 import com.cerejaplay.app.ui.screens.HomeScreen
+import com.cerejaplay.app.ui.screens.MyListScreen
 import com.cerejaplay.app.ui.screens.PlayerScreen
 import com.cerejaplay.app.ui.screens.SearchScreen
 import com.cerejaplay.app.ui.theme.CerejaPlayTheme
@@ -220,7 +225,15 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
         NavHost(
             navController = navController,
             startDestination = startRoute,
-            modifier = Modifier.padding(padding)
+            modifier = Modifier.padding(padding),
+            enterTransition = {
+                fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 12 }
+            },
+            exitTransition = { fadeOut(tween(160)) },
+            popEnterTransition = { fadeIn(tween(200)) },
+            popExitTransition = {
+                fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 12 }
+            }
         ) {
             tabs.forEach { tab ->
                 composable(route = mainRoute(tab.id)) {
@@ -230,10 +243,13 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                             onOpenDetail = { type, id ->
                                 navController.navigate(detailRoute(type, id))
                             },
-                            onPlay = { type, id, season, episode, title, poster ->
-                                navController.navigate(playerRoute(type, id, season, episode, title, poster))
+                            onPlay = { type, id, season, episode, title, poster, backdrop ->
+                                navController.navigate(
+                                    playerRoute(type, id, season, episode, title, poster, backdrop)
+                                )
                             },
-                            onOpenTab = { tabId -> openTab(tabId) }
+                            onOpenTab = { tabId -> openTab(tabId) },
+                            onOpenMyList = { navController.navigate("mylist") }
                         )
 
                         "search" -> SearchScreen(
@@ -241,7 +257,8 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                             endpoint = tab.endpoint ?: config.endpoints.search,
                             onOpenDetail = { type, id ->
                                 navController.navigate(detailRoute(type, id))
-                            }
+                            },
+                            onOpenTab = { tabId -> openTab(tabId) }
                         )
 
                         else -> CatalogScreen(
@@ -260,6 +277,16 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                 }
             }
 
+            composable(route = "mylist") {
+                MyListScreen(
+                    repository = repository,
+                    onBack = { navController.popBackStack() },
+                    onOpenDetail = { type, id ->
+                        navController.navigate(detailRoute(type, id))
+                    }
+                )
+            }
+
             composable(
                 route = "detail/{type}/{id}",
                 arguments = listOf(
@@ -274,21 +301,24 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                     type = type,
                     id = id,
                     onBack = { navController.popBackStack() },
-                    onPlay = { season, episode, title, poster ->
-                        navController.navigate(playerRoute(type, id, season, episode, title, poster))
+                    onPlay = { season, episode, title, poster, backdrop ->
+                        navController.navigate(
+                            playerRoute(type, id, season, episode, title, poster, backdrop)
+                        )
                     }
                 )
             }
 
             composable(
-                route = "player/{type}/{id}/{season}/{episode}?title={title}&poster={poster}",
+                route = "player/{type}/{id}/{season}/{episode}?title={title}&poster={poster}&backdrop={backdrop}",
                 arguments = listOf(
                     navArgument("type") { type = NavType.StringType },
                     navArgument("id") { type = NavType.StringType },
                     navArgument("season") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("episode") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("title") { type = NavType.StringType; defaultValue = "" },
-                    navArgument("poster") { type = NavType.StringType; defaultValue = "" }
+                    navArgument("poster") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("backdrop") { type = NavType.StringType; defaultValue = "" }
                 )
             ) { entry ->
                 val type = entry.arguments?.getString("type") ?: "movie"
@@ -297,6 +327,7 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                 val episode = entry.arguments?.getInt("episode") ?: 0
                 val title = entry.arguments?.getString("title").orEmpty()
                 val poster = entry.arguments?.getString("poster").orEmpty()
+                val backdrop = entry.arguments?.getString("backdrop").orEmpty()
                 PlayerScreen(
                     repository = repository,
                     type = type,
@@ -305,6 +336,7 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                     episode = episode,
                     title = title.ifBlank { "Reprodução" },
                     poster = poster.ifBlank { null },
+                    backdrop = backdrop.ifBlank { null },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -422,9 +454,12 @@ private fun playerRoute(
     season: Int,
     episode: Int,
     title: String,
-    poster: String?
+    poster: String?,
+    backdrop: String?
 ): String {
     val encodedTitle = Uri.encode(title)
     val encodedPoster = Uri.encode(poster.orEmpty())
-    return "player/${Uri.encode(type)}/${Uri.encode(id)}/$season/$episode?title=$encodedTitle&poster=$encodedPoster"
+    val encodedBackdrop = Uri.encode(backdrop.orEmpty())
+    return "player/${Uri.encode(type)}/${Uri.encode(id)}/$season/$episode" +
+        "?title=$encodedTitle&poster=$encodedPoster&backdrop=$encodedBackdrop"
 }
