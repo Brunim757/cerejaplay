@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -96,7 +96,9 @@ private fun CatalogGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        items(cards, key = { "${it.type}:${it.stableId}" }) { card ->
+        // Índice + id: mesmo que a API repita um card, a chave nunca colide
+        // e o LazyGrid não derruba o app durante o scroll.
+        itemsIndexed(cards, key = { index, card -> "$index:${card.type}:${card.stableId}" }) { _, card ->
             PosterCard(
                 card = card,
                 width = null,

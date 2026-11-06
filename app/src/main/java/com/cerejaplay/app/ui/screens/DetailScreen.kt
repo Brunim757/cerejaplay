@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -133,6 +133,13 @@ private fun DetailContent(
             else -> detail.totalEpisodes
         }
         (1..count.coerceAtLeast(1)).toList().chunked(5)
+    }
+    // O scraper de alguns animes devolve o mesmo episódio em dublado e
+    // legendado. Deduplicar evita uma lista repetida e chaves duplicadas.
+    val animeEpisodes = remember(detail) {
+        detail.episodes
+            .distinctBy { it.number }
+            .sortedBy { it.number }
     }
     val isSeries = detail.type == "series"
     val isAnime = detail.type == "anime"
@@ -302,7 +309,7 @@ private fun DetailContent(
                     subtitle = if (detail.totalEpisodes > 0) "${detail.totalEpisodes} episódios" else null
                 )
             }
-            if (detail.episodes.isEmpty()) {
+            if (animeEpisodes.isEmpty()) {
                 item(key = "no-episodes") {
                     Text(
                         text = "Nenhum episódio disponível.",
@@ -312,7 +319,10 @@ private fun DetailContent(
                     )
                 }
             } else {
-                items(detail.episodes, key = { "ep-${it.number}" }) { episode ->
+                itemsIndexed(
+                    animeEpisodes,
+                    key = { index, episode -> "ep-$index-${episode.number}" }
+                ) { _, episode ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

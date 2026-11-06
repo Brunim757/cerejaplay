@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -159,7 +159,7 @@ fun HomeScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(state.history, key = { it.key }) { item ->
+                                itemsIndexed(state.history, key = { index, item -> "history-$index-${item.key}" }) { _, item ->
                                     LandscapeCard(
                                         title = item.title,
                                         subtitle = item.episodeLabel,
@@ -197,7 +197,7 @@ fun HomeScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(row.items, key = { "${it.type}:${it.stableId}" }) { card ->
+                                itemsIndexed(row.items, key = { index, card -> "$index:${card.type}:${card.stableId}" }) { _, card ->
                                     PosterCard(
                                         card = card,
                                         onClick = { onOpenDetail(card.type, card.stableId) }

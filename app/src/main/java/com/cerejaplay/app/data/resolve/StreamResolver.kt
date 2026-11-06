@@ -12,7 +12,8 @@ import java.util.concurrent.TimeUnit
 data class ResolvedStream(
     val url: String,
     val headers: Map<String, String>,
-    val quality: String? = null
+    val quality: String? = null,
+    val isHls: Boolean = false
 )
 
 /**
@@ -86,7 +87,8 @@ object StreamResolver {
                 "User-Agent" to MOBILE_UA,
                 "Referer" to "https://www.blogger.com/"
             ),
-            quality = qualityOf(best)
+            quality = qualityOf(best),
+            isHls = false
         )
     }
 
@@ -148,7 +150,10 @@ object StreamResolver {
                 "User-Agent" to DESKTOP_UA,
                 "Referer" to embedUrl,
                 "Origin" to VIXSRC_BASE
-            )
+            ),
+            // A playlist do VixSrc nao termina em .m3u8: e preciso marcar
+            // explicitamente que o ExoPlayer deve usar o pipeline HLS.
+            isHls = true
         )
     }
 

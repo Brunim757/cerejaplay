@@ -293,7 +293,12 @@ private fun DirectPlayer(
     var resolved by remember(stream) {
         mutableStateOf(
             stream.url?.takeIf { stream.isDirect }?.let {
-                ResolvedStream(url = it, headers = stream.headers, quality = stream.quality)
+                ResolvedStream(
+                    url = it,
+                    headers = stream.headers,
+                    quality = stream.quality,
+                    isHls = stream.type == "hls"
+                )
             }
         )
     }
@@ -344,7 +349,9 @@ private fun DirectPlayer(
             if (subtitleConfigs.isNotEmpty()) itemBuilder.setSubtitleConfigurations(subtitleConfigs)
 
             val mediaItem = itemBuilder.build()
-            val isHls = stream.type == "hls" || target.url.contains(".m3u8", ignoreCase = true)
+            val isHls = media.isHls ||
+                stream.type == "hls" ||
+                target.url.contains(".m3u8", ignoreCase = true)
             val source = if (isHls) {
                 HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
             } else {
@@ -452,9 +459,9 @@ private fun DirectPlayer(
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             setShutterBackgroundColor(android.graphics.Color.BLACK)
-                            player = exoPlayer
                         }
                     },
+                    update = { view -> view.player = exoPlayer },
                     modifier = Modifier.fillMaxSize()
                 )
 
