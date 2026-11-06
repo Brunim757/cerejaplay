@@ -1,15 +1,29 @@
 package com.cerejaplay.app.ui
 
 import android.net.Uri
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GridView
@@ -20,10 +34,8 @@ import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -31,11 +43,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -52,6 +69,7 @@ import com.cerejaplay.app.data.model.TabConfig
 import com.cerejaplay.app.data.model.ThemeConfig
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.data.repo.DefaultConfig
+import com.cerejaplay.app.ui.components.CerejaWordmark
 import com.cerejaplay.app.ui.screens.CatalogScreen
 import com.cerejaplay.app.ui.screens.DetailScreen
 import com.cerejaplay.app.ui.screens.HomeScreen
@@ -78,28 +96,82 @@ fun CerejaPlayRoot(container: AppContainer) {
 
 @Composable
 private fun BootScreen() {
+    val transition = rememberInfiniteTransition(label = "boot")
+    val pulse by transition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1300, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "boot-scale"
+    )
+    val glow by transition.animateFloat(
+        initialValue = 0.16f,
+        targetValue = 0.32f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1300, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "boot-glow"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .background(MaterialTheme.colorScheme.background)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = glow),
+                        Color.Transparent
+                    )
+                )
+            )
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_cereja_logo),
-                contentDescription = null,
-                modifier = Modifier.size(80.dp),
-                tint = Color.Unspecified
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(124.dp)
+                    .scale(pulse)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_cereja_logo),
+                    contentDescription = null,
+                    modifier = Modifier.size(96.dp),
+                    tint = Color.Unspecified
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+            CerejaWordmark(fontSize = 30.sp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Filmes, séries e animes",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(30.dp))
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 2.5.dp,
+                modifier = Modifier.size(26.dp)
             )
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "CerejaPlay",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Bold
+                text = "Preparando seu catálogo...",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
             )
-            Spacer(Modifier.height(22.dp))
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -137,23 +209,11 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (topLevel) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentTabId == tab.id,
-                            onClick = { openTab(tab.id) },
-                            icon = { Icon(tabIcon(tab), contentDescription = tab.title) },
-                            label = { Text(tab.title) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
-                    }
-                }
+                CerejaBottomBar(
+                    tabs = tabs,
+                    currentTabId = currentTabId,
+                    onSelect = ::openTab
+                )
             }
         }
     ) { padding ->
@@ -190,6 +250,10 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                             endpoint = catalogEndpoint(tab, config),
                             onOpenDetail = { type, id ->
                                 navController.navigate(detailRoute(type, id))
+                            },
+                            onOpenSearch = {
+                                config.tabs.firstOrNull { it.type == "search" }
+                                    ?.let { searchTab -> openTab(searchTab.id) }
                             }
                         )
                     }
@@ -243,6 +307,85 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                     poster = poster.ifBlank { null },
                     onBack = { navController.popBackStack() }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CerejaBottomBar(
+    tabs: List<TabConfig>,
+    currentTabId: String?,
+    onSelect: (String) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.background.copy(alpha = 0.98f),
+        tonalElevation = 0.dp
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.9f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .height(68.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                tabs.forEach { tab ->
+                    val selected = currentTabId == tab.id
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onSelect(tab.id) }
+                            .padding(vertical = 5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .height(28.dp)
+                                .width(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                    else Color.Transparent
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = tabIcon(tab),
+                                contentDescription = tab.title,
+                                tint = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = tab.title,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }

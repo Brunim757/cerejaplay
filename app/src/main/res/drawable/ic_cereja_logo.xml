@@ -3,13 +3,55 @@
     android:height="48dp"
     android:viewportWidth="48"
     android:viewportHeight="48">
+
+    <!-- Haste verde em Y -->
     <path
-        android:fillColor="#E23744"
-        android:pathData="M21,14 a13,13 0 1,0 0,26 a13,13 0 1,0 0,-26 Z" />
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#46C46A"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.9"
+        android:pathData="M20,22 C20,16 23,12 29,11" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M17,20 L17,34 L29,27 Z" />
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#46C46A"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.9"
+        android:pathData="M33,21 C33,16 32,13 29,11" />
+
+    <!-- Folha -->
     <path
         android:fillColor="#4CD964"
-        android:pathData="M34,12 C38,9 42,11 42,16 C37,19 34,16 34,12 Z" />
+        android:pathData="M29,11 C33,6 41,7 44,12 C39,16 33,15 29,11 Z" />
+    <path
+        android:fillColor="#2FA84F"
+        android:pathData="M30,11 C34,10 38,10 42,11 C38,13 34,13 30,11 Z" />
+
+    <!-- Cereja esquerda -->
+    <path
+        android:fillColor="#E23744"
+        android:pathData="M10.5,31 a9.5,9.5 0 1,0 19,0 a9.5,9.5 0 1,0 -19,0 Z" />
+    <path
+        android:fillColor="#B31224"
+        android:pathData="M12.5,35 a7.5,7.5 0 0,0 14,0 a9.5,9.5 0 0,1 -14,0 Z" />
+
+    <!-- Cereja direita -->
+    <path
+        android:fillColor="#FF4D5E"
+        android:pathData="M24,30 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0 Z" />
+    <path
+        android:fillColor="#D81E32"
+        android:pathData="M26,34 a7,7 0 0,0 13,0 a9,9 0 0,1 -13,0 Z" />
+
+    <!-- Play na cereja esquerda -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M17,25.5 L17,36.5 L26,31 Z" />
+
+    <!-- Brilho -->
+    <path
+        android:fillAlpha="0.45"
+        android:fillColor="#FFFFFF"
+        android:pathData="M28.5,24.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
 </vector>

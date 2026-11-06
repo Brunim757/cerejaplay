@@ -1,5 +1,6 @@
 package com.cerejaplay.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,8 +26,6 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +42,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,9 +52,9 @@ import com.cerejaplay.app.data.model.MediaDetail
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.ErrorState
-import com.cerejaplay.app.ui.components.LoadingState
 import com.cerejaplay.app.ui.components.RatingBadge
 import com.cerejaplay.app.ui.components.SectionHeader
+import com.cerejaplay.app.ui.components.SkeletonBox
 import com.cerejaplay.app.ui.components.typeLabel
 import com.cerejaplay.app.ui.viewmodel.DetailViewModel
 
@@ -77,12 +76,7 @@ fun DetailScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         when {
-            state.loading && state.detail == null -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Spacer(Modifier.statusBarsPadding())
-                    LoadingState(message = "Carregando detalhes...")
-                }
-            }
+            state.loading && state.detail == null -> DetailSkeleton()
 
             state.error != null && state.detail == null -> {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -109,11 +103,15 @@ fun DetailScreen(
             modifier = Modifier
                 .statusBarsPadding()
                 .padding(10.dp)
-                .size(40.dp)
+                .size(42.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.45f))
+                .background(Color.Black.copy(alpha = 0.48f))
         ) {
-            Icon(Icons.Rounded.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+            Icon(
+                imageVector = Icons.Rounded.ArrowBack,
+                contentDescription = "Voltar",
+                tint = Color.White
+            )
         }
     }
 }
@@ -125,134 +123,72 @@ private fun DetailContent(
     onSelectSeason: (Int) -> Unit,
     onPlay: (Int, Int, String, String?) -> Unit
 ) {
-    val chunkedEpisodes = remember(detail, selectedSeason) {
-        val season = detail.seasons.firstOrNull { it.number == selectedSeason }
-        val count = when {
-            detail.type == "anime" -> detail.episodes.size.takeIf { it > 0 } ?: detail.totalEpisodes
-            detail.type == "series" -> season?.episodeCount ?: 24
-            else -> detail.totalEpisodes
-        }
-        (1..count.coerceAtLeast(1)).toList().chunked(5)
-    }
     // O scraper de alguns animes devolve o mesmo episódio em dublado e
-    // legendado. Deduplicar evita uma lista repetida e chaves duplicadas.
+    // legendado. Deduplicar evita uma lista repetida.
     val animeEpisodes = remember(detail) {
         detail.episodes
             .distinctBy { it.number }
             .sortedBy { it.number }
     }
+    val season = detail.seasons.firstOrNull { it.number == selectedSeason }
     val isSeries = detail.type == "series"
     val isAnime = detail.type == "anime"
     val playsEpisodes = isSeries || isAnime
 
+    val episodeNumbers = remember(detail, selectedSeason, animeEpisodes) {
+        when {
+            isAnime -> animeEpisodes.map { it.number }
+            isSeries -> {
+                val count = season?.episodeCount
+                    ?: detail.totalEpisodes.takeIf { it in 1..60 }
+                    ?: 24
+                (1..count.coerceAtLeast(1)).toList()
+            }
+            else -> emptyList()
+        }
+    }
+    val episodeRows = remember(episodeNumbers) {
+        episodeNumbers.chunked(5)
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 28.dp)
+        contentPadding = PaddingValues(bottom = 32.dp)
     ) {
         item(key = "hero") {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(410.dp)
-            ) {
-                AsyncImage(
-                    model = detail.backdrop ?: detail.poster,
-                    contentDescription = detail.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.30f),
-                                0.45f to Color.Transparent,
-                                1f to MaterialTheme.colorScheme.background
-                            )
-                        )
-                )
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp)
-                        .padding(bottom = 18.dp)
-                ) {
-                    Text(
-                        text = detail.title,
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = Color.White,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RatingBadge(detail.rating)
-                        Spacer(Modifier.width(8.dp))
-                        if (detail.year != null) {
-                            MetaText(detail.year.toString())
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-                        ) {
-                            Text(
-                                text = typeLabel(detail.type),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                        if (detail.runtime != null && detail.runtime > 0) {
-                            Spacer(Modifier.width(8.dp))
-                            MetaText("${detail.runtime} min")
-                        }
-                    }
-                }
-            }
+            DetailHero(
+                detail = detail,
+                isSeries = isSeries,
+                isAnime = isAnime,
+                selectedSeason = selectedSeason,
+                onPlay = onPlay
+            )
         }
 
-        item(key = "actions") {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Button(
-                    onClick = { onPlay(if (playsEpisodes) selectedSeason else 0, if (playsEpisodes) 1 else 0, detail.title, detail.poster) },
+        if (detail.genres.isNotEmpty()) {
+            item(key = "genres") {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (playsEpisodes) "Assistir episódio 1" else "Assistir agora",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                if (detail.genres.isNotEmpty()) {
-                    Spacer(Modifier.height(14.dp))
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        detail.genres.forEach { genre ->
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant
-                            ) {
-                                Text(
-                                    text = genre,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
+                    detail.genres.forEach { genre ->
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(
+                                0.5.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                            )
+                        ) {
+                            Text(
+                                text = genre,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
                         }
                     }
                 }
@@ -260,13 +196,13 @@ private fun DetailContent(
         }
 
         item(key = "overview") {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
                 Text(
                     text = "Sinopse",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = detail.overview.ifBlank { "Sinopse não disponível para este título." },
                     style = MaterialTheme.typography.bodyMedium,
@@ -276,145 +212,279 @@ private fun DetailContent(
         }
 
         if (isSeries && detail.seasons.isNotEmpty()) {
+            item(key = "seasons-header") {
+                SectionHeader(
+                    title = "Temporadas",
+                    subtitle = "${detail.seasons.size} temporadas disponíveis"
+                )
+            }
             item(key = "seasons") {
-                SectionHeader(title = "Temporadas")
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    detail.seasons.forEach { season ->
-                        FilterChip(
-                            selected = selectedSeason == season.number,
-                            onClick = { onSelectSeason(season.number) },
-                            label = { Text("T${season.number}") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
+                    detail.seasons.forEach { item ->
+                        val selected = selectedSeason == item.number
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            border = if (selected) null else BorderStroke(
+                                0.5.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                            ),
+                            modifier = Modifier.clickable { onSelectSeason(item.number) }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "T${item.number}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (item.episodeCount != null) {
+                                    Text(
+                                        text = "${item.episodeCount} eps",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        if (isAnime) {
+        if (playsEpisodes) {
             item(key = "episodes-header") {
                 SectionHeader(
-                    title = "Episódios",
-                    subtitle = if (detail.totalEpisodes > 0) "${detail.totalEpisodes} episódios" else null
+                    title = if (isAnime) "Episódios" else "Episódios da temporada",
+                    subtitle = if (isAnime) "${episodeNumbers.size} episódios"
+                    else "Temporada $selectedSeason"
                 )
             }
-            if (animeEpisodes.isEmpty()) {
+            if (episodeRows.isEmpty()) {
                 item(key = "no-episodes") {
                     Text(
                         text = "Nenhum episódio disponível.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        modifier = Modifier.padding(horizontal = 18.dp)
                     )
                 }
             } else {
-                itemsIndexed(
-                    animeEpisodes,
-                    key = { index, episode -> "ep-$index-${episode.number}" }
-                ) { _, episode ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPlay(1, episode.number, detail.title, detail.poster) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.size(42.dp)
+                episodeRows.forEachIndexed { rowIndex, row ->
+                    item(key = "ep-row-$selectedSeason-$rowIndex") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = episode.number.toString(),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
+                            row.forEach { number ->
+                                EpisodeButton(
+                                    number = number,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        onPlay(
+                                            if (isSeries) selectedSeason else 1,
+                                            number,
+                                            detail.title,
+                                            detail.poster
+                                        )
+                                    }
                                 )
                             }
+                            repeat(5 - row.size) {
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = episode.title ?: "Episódio ${episode.number}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Icon(
-                            Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
                     }
                 }
             }
         }
 
-        if (isSeries) {
-            item(key = "episodes-header") {
-                SectionHeader(title = "Episódios", subtitle = "Temporada $selectedSeason")
-            }
-            chunkedEpisodes.forEachIndexed { rowIndex, row ->
-                item(key = "ep-row-$selectedSeason-$rowIndex") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        row.forEach { number ->
-                            EpisodeButton(
-                                number = number,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onPlay(selectedSeason, number, detail.title, detail.poster) }
-                            )
-                        }
-                        repeat(5 - row.size) {
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
+        item(key = "about") {
+            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+                Text(
+                    text = "Sobre",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(10.dp))
+                if (!detail.originalTitle.isNullOrBlank() && detail.originalTitle != detail.title) {
+                    InfoRow("Título original", detail.originalTitle!!)
                 }
+                if (detail.status != null) InfoRow("Status", detail.status!!)
+                if (detail.totalEpisodes > 0) InfoRow("Total de episódios", detail.totalEpisodes.toString())
+                if (detail.runtime != null && detail.runtime > 0) InfoRow("Duração", "${detail.runtime} min")
+                InfoRow("Tipo", typeLabel(detail.type).lowercase().replaceFirstChar { it.uppercase() })
             }
         }
 
         item(key = "legal") {
             Text(
-                text = com.cerejaplay.app.ui.LocalAppConfig.current.legal.disclaimer,
-                style = MaterialTheme.typography.labelMedium,
+                text = LocalAppConfig.current.legal.disclaimer,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
             )
         }
     }
 }
 
 @Composable
-private fun EpisodeButton(number: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun DetailHero(
+    detail: MediaDetail,
+    isSeries: Boolean,
+    isAnime: Boolean,
+    selectedSeason: Int,
+    onPlay: (Int, Int, String, String?) -> Unit
+) {
+    val playsEpisodes = isSeries || isAnime
     Box(
-        modifier = modifier
-            .height(46.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(470.dp)
     ) {
-        Text(
-            text = number.toString(),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface
+        AsyncImage(
+            model = detail.backdrop ?: detail.poster,
+            contentDescription = detail.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
         )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.42f),
+                        0.38f to Color.Transparent,
+                        0.72f to Color.Transparent,
+                        1f to MaterialTheme.colorScheme.background
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent)
+                    )
+                )
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 18.dp)
+        ) {
+            Text(
+                text = detail.title,
+                style = MaterialTheme.typography.headlineLarge,
+                color = Color.White,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RatingBadge(detail.rating)
+                if (detail.rating > 0) Spacer(Modifier.width(8.dp))
+                if (detail.year != null) {
+                    MetaText(detail.year.toString())
+                    Spacer(Modifier.width(8.dp))
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
+                ) {
+                    Text(
+                        text = typeLabel(detail.type),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                if (detail.runtime != null && detail.runtime > 0) {
+                    Spacer(Modifier.width(8.dp))
+                    MetaText("${detail.runtime} min")
+                }
+                if (isSeries && detail.seasons.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    MetaText("${detail.seasons.size} temporadas")
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    onPlay(
+                        if (playsEpisodes) selectedSeason else 0,
+                        if (playsEpisodes) 1 else 0,
+                        detail.title,
+                        detail.poster
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(23.dp)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = if (playsEpisodes) "Assistir episódio 1" else "Assistir agora",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeButton(number: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(
+            0.5.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+        )
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = number.toString(),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
@@ -423,6 +493,99 @@ private fun MetaText(value: String) {
     Text(
         text = value,
         style = MaterialTheme.typography.labelMedium,
-        color = Color.White.copy(alpha = 0.85f)
+        color = Color.White.copy(alpha = 0.86f)
     )
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(126.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun DetailSkeleton() {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(470.dp)
+        ) {
+            SkeletonBox(
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(0.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            1f to MaterialTheme.colorScheme.background
+                        )
+                    )
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 18.dp, vertical = 20.dp)
+                    .fillMaxWidth()
+            ) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth(0.78f)
+                        .height(32.dp),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(Modifier.height(10.dp))
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth(0.48f)
+                        .height(14.dp),
+                    shape = RoundedCornerShape(6.dp)
+                )
+                Spacer(Modifier.height(18.dp))
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp)
+                )
+            }
+        }
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+            SkeletonBox(
+                modifier = Modifier
+                    .fillMaxWidth(0.3f)
+                    .height(22.dp),
+                shape = RoundedCornerShape(6.dp)
+            )
+            Spacer(Modifier.height(10.dp))
+            repeat(3) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth(if (it == 2) 0.62f else 0.94f)
+                        .height(13.dp),
+                    shape = RoundedCornerShape(5.dp)
+                )
+                Spacer(Modifier.height(7.dp))
+            }
+        }
+    }
 }
