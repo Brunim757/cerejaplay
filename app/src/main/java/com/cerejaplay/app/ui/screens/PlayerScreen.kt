@@ -72,6 +72,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -329,7 +330,15 @@ private fun DirectPlayer(
         runCatching {
             val dataSourceFactory = DefaultHttpDataSource.Factory()
                 .setDefaultRequestProperties(target.headers)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(30_000)
                 .setAllowCrossProtocolRedirects(true)
+
+            // Buffer maior evita microtravadas em HLS com segmentos
+            // criptografados, que respondem com latência variável.
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(20_000, 90_000, 1_500, 3_000)
+                .build()
 
             val itemBuilder = MediaItem.Builder().setUri(Uri.parse(target.url))
             val subtitleConfigs = stream.subtitles.mapNotNull { subtitle ->
@@ -358,11 +367,14 @@ private fun DirectPlayer(
                 ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
             }
 
-            ExoPlayer.Builder(context).build().apply {
-                setMediaSource(source)
-                prepare()
-                playWhenReady = autoplay
-            }
+            ExoPlayer.Builder(context)
+                .setLoadControl(loadControl)
+                .build()
+                .apply {
+                    setMediaSource(source)
+                    prepare()
+                    playWhenReady = autoplay
+                }
         }.getOrNull()
     }
 

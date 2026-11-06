@@ -483,20 +483,12 @@ fun SkeletonBox(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(12.dp)
 ) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.72f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "skeleton-alpha"
-    )
+    // Sem animação infinita: vários skeletons animando ao mesmo tempo
+    // custavam caro em aparelhos modestos e causavam engasgos na abertura.
     Box(
         modifier = modifier
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f))
     )
 }
 

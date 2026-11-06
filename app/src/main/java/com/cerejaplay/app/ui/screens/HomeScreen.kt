@@ -87,6 +87,7 @@ fun HomeScreen(
             onAudioSelected = viewModel::setAudio,
             onQualitySelected = viewModel::setQuality,
             onLanguageSelected = viewModel::setLanguage,
+            onClearHistory = viewModel::clearHistory,
             onDismiss = { showSettings = false }
         )
     }
@@ -303,17 +304,17 @@ fun HomeScreen(
                         }
                     }
 
-                    item(key = "legal") {
+                    item(key = "brand-footer") {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 24.dp, vertical = 22.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            CerejaWordmark(fontSize = 15.sp)
-                            Spacer(Modifier.height(8.dp))
+                            CerejaWordmark(fontSize = 13.sp)
+                            Spacer(Modifier.height(7.dp))
                             Text(
-                                text = config.legal.disclaimer,
+                                text = config.tagline,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center

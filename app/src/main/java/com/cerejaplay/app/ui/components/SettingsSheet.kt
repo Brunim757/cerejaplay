@@ -1,5 +1,6 @@
 package com.cerejaplay.app.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,17 +10,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cerejaplay.app.data.model.PreferencesConfig
 import com.cerejaplay.app.data.model.UserSettings
 
@@ -32,6 +44,7 @@ fun SettingsSheet(
     onAudioSelected: (String) -> Unit,
     onQualitySelected: (String) -> Unit,
     onLanguageSelected: (String) -> Unit,
+    onClearHistory: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
@@ -43,16 +56,33 @@ fun SettingsSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding()
-                .padding(bottom = 20.dp)
+                .padding(bottom = 22.dp)
         ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CerejaWordmark(fontSize = 18.sp)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onDismiss, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Fechar",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             Text(
                 text = "Preferências de reprodução",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "Os ajustes valem para todas as fontes do catálogo.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(18.dp))
 
-            SettingRow(title = "Áudio") {
+            SettingGroup(title = "Áudio") {
                 preferences.audioOptions.forEach { option ->
                     FilterChip(
                         selected = settings.audio == option.id,
@@ -63,8 +93,8 @@ fun SettingsSheet(
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
-            SettingRow(title = "Qualidade") {
+            Spacer(Modifier.height(10.dp))
+            SettingGroup(title = "Qualidade") {
                 preferences.qualityOptions.forEach { option ->
                     FilterChip(
                         selected = settings.quality == option,
@@ -75,8 +105,8 @@ fun SettingsSheet(
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
-            SettingRow(title = "Idioma") {
+            Spacer(Modifier.height(10.dp))
+            SettingGroup(title = "Idioma") {
                 preferences.languages.forEach { option ->
                     FilterChip(
                         selected = settings.language == option.code,
@@ -87,12 +117,50 @@ fun SettingsSheet(
                 }
             }
 
+            if (onClearHistory != null) {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
+                    border = BorderStroke(
+                        0.5.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(
+                        onClick = onClearHistory,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.History,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.padding(horizontal = 4.dp))
+                        Text(
+                            text = "Limpar histórico de exibição",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+
             if (legalNotice.isNotBlank()) {
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    text = "Aviso",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(5.dp))
                 Text(
                     text = legalNotice,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f)
                 )
             }
         }
@@ -100,22 +168,32 @@ fun SettingsSheet(
 }
 
 @Composable
-private fun SettingRow(title: String, content: @Composable () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            content()
+private fun SettingGroup(title: String, content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
+        border = BorderStroke(
+            0.5.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                content()
+            }
         }
     }
 }
@@ -124,6 +202,6 @@ private fun SettingRow(title: String, content: @Composable () -> Unit) {
 private fun chipColors() = FilterChipDefaults.filterChipColors(
     selectedContainerColor = MaterialTheme.colorScheme.primary,
     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    containerColor = MaterialTheme.colorScheme.surface,
     labelColor = MaterialTheme.colorScheme.onSurfaceVariant
 )
