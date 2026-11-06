@@ -12,7 +12,7 @@ import com.cerejaplay.app.data.model.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.builtins.list
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 private val Context.cerejaDataStore: DataStore<Preferences> by preferencesDataStore(name = "cereja_prefs")
@@ -64,7 +64,7 @@ class UserPreferences(private val context: Context, private val json: Json) {
     suspend fun addHistory(item: HistoryItem) {
         val current = context.cerejaDataStore.data.first()[Keys.HISTORY].let(::decodeHistory)
         val updated = (listOf(item) + current.filterNot { it.key == item.key }).take(20)
-        val encoded = runCatching { json.encodeToString(HistoryItem.serializer().list, updated) }.getOrNull() ?: return
+        val encoded = runCatching { json.encodeToString(ListSerializer(HistoryItem.serializer()), updated) }.getOrNull() ?: return
         context.cerejaDataStore.edit { it[Keys.HISTORY] = encoded }
     }
 
@@ -74,6 +74,6 @@ class UserPreferences(private val context: Context, private val json: Json) {
 
     private fun decodeHistory(encoded: String?): List<HistoryItem> {
         if (encoded.isNullOrBlank()) return emptyList()
-        return runCatching { json.decodeFromString(HistoryItem.serializer().list, encoded) }.getOrDefault(emptyList())
+        return runCatching { json.decodeFromString(ListSerializer(HistoryItem.serializer()), encoded) }.getOrDefault(emptyList())
     }
 }
