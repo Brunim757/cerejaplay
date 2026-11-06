@@ -665,7 +665,7 @@ private fun sourceSubtitle(stream: Stream): String {
     val parts = mutableListOf<String>()
     when {
         stream.isDirect -> parts.add(if (stream.type == "hls") "HLS" else "MP4")
-        stream.type == "resolver" -> parts.add("MP4")
+        stream.type == "resolver" -> parts.add(if (stream.resolver == "vixsrc") "HLS" else "MP4")
         else -> parts.add("Embed")
     }
     stream.quality?.let { parts.add(it) }
