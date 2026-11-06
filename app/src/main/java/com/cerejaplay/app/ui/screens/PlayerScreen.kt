@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FormatListBulleted
@@ -50,6 +51,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,6 +116,8 @@ fun PlayerScreen(
     var showSources by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var showAudio by remember { mutableStateOf(false) }
+    var showControls by remember { mutableStateOf(true) }
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var speed by remember { mutableFloatStateOf(1f) }
 
     LaunchedEffect(type, id, season, episode, config.endpoints.watch) {
@@ -220,6 +224,9 @@ fun PlayerScreen(
                     autoplay = config.player.autoplay,
                     startPositionMs = state.startPositionMs,
                     startSpeed = speed,
+                    controlsVisible = showControls,
+                    onControlsVisibleChange = { showControls = it },
+                    resize = resizeMode,
                     onProgress = viewModel::saveProgress,
                     onError = viewModel::onPlaybackError,
                     modifier = Modifier.fillMaxSize()
@@ -227,15 +234,22 @@ fun PlayerScreen(
             }
         }
 
-        PlayerTopBar(
-            title = state.watch?.title ?: title,
-            subtitle = episodeLabel(type, state.watch?.season, state.watch?.episode, state.watch?.episodeLabel),
-            speedLabel = formatSpeed(speed),
-            onBack = onBack,
-            onSpeed = { showSpeed = true },
-            onAudio = { showAudio = true },
-            onSources = { showSources = true }
-        )
+        // A barra superior só aparece junto com os controles, para não ficar
+        // cobrindo o vídeo o tempo todo. Em estados de erro/carregamento ela
+        // permanece para dar acesso ao botão Voltar.
+        if (state.selected == null || showControls) {
+            PlayerTopBar(
+                title = state.watch?.title ?: title,
+                subtitle = episodeLabel(type, state.watch?.season, state.watch?.episode, state.watch?.episodeLabel),
+                speedLabel = formatSpeed(speed),
+                resizeLabel = resizeModeLabel(resizeMode),
+                onBack = onBack,
+                onSpeed = { showSpeed = true },
+                onAudio = { showAudio = true },
+                onResize = { resizeMode = nextResizeMode(resizeMode) },
+                onSources = { showSources = true }
+            )
+        }
 
         if (state.error != null && state.watch != null && state.selected != null) {
             Surface(
@@ -272,9 +286,11 @@ private fun PlayerTopBar(
     title: String,
     subtitle: String?,
     speedLabel: String,
+    resizeLabel: String,
     onBack: () -> Unit,
     onSpeed: () -> Unit,
     onAudio: () -> Unit,
+    onResize: () -> Unit,
     onSources: () -> Unit
 ) {
     Box(
@@ -314,6 +330,12 @@ private fun PlayerTopBar(
                 }
             }
             PlayerPill(
+                label = resizeLabel,
+                icon = Icons.Rounded.AspectRatio,
+                description = "Ajuste de tela",
+                onClick = onResize
+            )
+            PlayerPill(
                 label = speedLabel,
                 icon = Icons.Rounded.Speed,
                 description = "Velocidade de reprodução",
@@ -338,17 +360,22 @@ private fun DirectPlayer(
     autoplay: Boolean,
     startPositionMs: Long,
     startSpeed: Float,
+    controlsVisible: Boolean,
+    onControlsVisibleChange: (Boolean) -> Unit,
+    resize: Int,
     onProgress: (Long, Long) -> Unit,
     onError: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var showControls by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(startPositionMs) }
     var duration by remember { mutableLongStateOf(0L) }
     var buffering by remember { mutableStateOf(true) }
     var ended by remember { mutableStateOf(false) }
+
+    val showControls = controlsVisible
+    fun setShowControls(value: Boolean) = onControlsVisibleChange(value)
 
     var resolved by remember(stream) {
         mutableStateOf(
@@ -465,7 +492,7 @@ private fun DirectPlayer(
     LaunchedEffect(showControls, isPlaying, buffering) {
         if (showControls && isPlaying && !buffering) {
             delay(3500)
-            showControls = false
+            setShowControls(false)
         }
     }
 
@@ -544,7 +571,7 @@ private fun DirectPlayer(
                 modifier = modifier
                     .pointerInput(exoPlayer, duration) {
                         detectTapGestures(
-                            onTap = { showControls = !showControls },
+                            onTap = { setShowControls(!showControls) },
                             onDoubleTap = { offset ->
                                 val forward = offset.x > size.width / 2f
                                 val delta = if (forward) 10_000L else -10_000L
@@ -552,7 +579,7 @@ private fun DirectPlayer(
                                     .coerceIn(0L, duration.coerceAtLeast(0L))
                                 exoPlayer.seekTo(target)
                                 position = target
-                                showControls = true
+                                setShowControls(true)
                             }
                         )
                     }
@@ -561,12 +588,15 @@ private fun DirectPlayer(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
                             useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            resizeMode = resize
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             setShutterBackgroundColor(android.graphics.Color.BLACK)
                         }
                     },
-                    update = { view -> view.player = exoPlayer },
+                    update = { view ->
+                        view.player = exoPlayer
+                        if (view.resizeMode != resize) view.resizeMode = resize
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -600,7 +630,7 @@ private fun DirectPlayer(
                         ) {
                             ControlButton(Icons.Rounded.Replay10, "Voltar 10s") {
                                 exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L))
-                                showControls = true
+                                setShowControls(true)
                             }
                             IconButton(
                                 onClick = {
@@ -613,7 +643,7 @@ private fun DirectPlayer(
                                     } else {
                                         exoPlayer.play()
                                     }
-                                    showControls = true
+                                    setShowControls(true)
                                 },
                                 modifier = Modifier
                                     .size(64.dp)
@@ -629,7 +659,7 @@ private fun DirectPlayer(
                             }
                             ControlButton(Icons.Rounded.Forward10, "Avançar 10s") {
                                 exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(duration.coerceAtLeast(0L)))
-                                showControls = true
+                                setShowControls(true)
                             }
                         }
 
@@ -653,7 +683,7 @@ private fun DirectPlayer(
                                 },
                                 onValueChangeFinished = {
                                     exoPlayer.seekTo(position)
-                                    showControls = true
+                                    setShowControls(true)
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -1006,4 +1036,21 @@ private fun formatSpeed(speed: Float): String {
         2f -> "2x"
         else -> "${speed}x"
     }
+}
+
+// Alterna o modo de ajuste da imagem. "Ajustar" mostra o vídeo inteiro (pode
+// sobrar tarja quando a proporção da fonte difere da tela); "Zoom" preenche a
+// tela cortando as bordas; "Preencher" estica. Assim cada provedor pode ser
+// exibido do jeito que fica melhor no aparelho.
+private fun nextResizeMode(current: Int): Int = when (current) {
+    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+}
+
+private fun resizeModeLabel(mode: Int): String = when (mode) {
+    AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Ajustar"
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Preencher"
+    else -> "Ajustar"
 }
