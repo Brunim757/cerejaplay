@@ -261,15 +261,6 @@ fun HomeScreen(
                                         onClick = onOpenMyList
                                     )
                                 }
-                                if (searchTab != null) {
-                                    item(key = "chip-search") {
-                                        CategoryChip(
-                                            label = "Buscar",
-                                            icon = Icons.Rounded.Search,
-                                            onClick = { onOpenTab(searchTab.id) }
-                                        )
-                                    }
-                                }
                             }
                         }
                     }

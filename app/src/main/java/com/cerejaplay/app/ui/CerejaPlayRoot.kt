@@ -187,6 +187,9 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
     val tabs = remember(config.tabs) {
         config.tabs.filter { it.id.isNotBlank() }.ifEmpty { DefaultConfig.value.tabs }
     }
+    // A busca fica apenas no botão do topo: a aba correspondente continua
+    // existindo para navegação, mas sai da barra inferior.
+    val bottomTabs = remember(tabs) { tabs.filter { it.type != "search" } }
     val startTab = remember(tabs) { tabs.firstOrNull { it.type == "home" } ?: tabs.first() }
     val startRoute = remember(startTab) { mainRoute(startTab.id) }
 
@@ -215,7 +218,7 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
         bottomBar = {
             if (topLevel) {
                 CerejaBottomBar(
-                    tabs = tabs,
+                    tabs = bottomTabs,
                     currentTabId = currentTabId,
                     onSelect = ::openTab
                 )
