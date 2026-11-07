@@ -60,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.cerejaplay.app.data.model.MediaCard
 import com.cerejaplay.app.data.repo.CerejaRepository
+import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.CerejaTopBar
 import com.cerejaplay.app.ui.components.EmptyState
 import com.cerejaplay.app.ui.components.ErrorState
