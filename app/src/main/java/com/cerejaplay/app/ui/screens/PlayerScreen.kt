@@ -567,6 +567,10 @@ private fun DirectPlayer(
 
     val showControls = controlsVisible
     fun setShowControls(value: Boolean) = onControlsVisibleChange(value)
+    // Lê SEMPRE o valor atual de showControls. Sem isso, o lambda do toque
+    // ficava preso ao valor inicial (capturado na criação do pointerInput) e o
+    // toque nunca mostrava os controles.
+    val latestShowControls = rememberUpdatedState(showControls)
 
     fun applyVolume(value: Float) {
         val manager = audioManager ?: return
@@ -907,7 +911,7 @@ private fun DirectPlayer(
                     .pointerInput(exoPlayer, duration, locked) {
                         if (locked) return@pointerInput
                         detectTapGestures(
-                            onTap = { setShowControls(!showControls) },
+                            onTap = { setShowControls(!latestShowControls.value) },
                             onDoubleTap = { offset ->
                                 val forward = offset.x > size.width / 2f
                                 val delta = if (forward) 10_000L else -10_000L
@@ -1420,26 +1424,43 @@ private fun SubtitleSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 18.dp)
+                .heightIn(max = 460.dp)
+                .navigationBarsPadding(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = 18.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = "Legendas",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.height(10.dp))
-            SubtitleRow(
-                label = "Desativadas",
-                active = selected == null,
-                icon = Icons.Rounded.VolumeOff,
-                onClick = { onSelect(null) }
-            )
-            subtitles.forEachIndexed { index, subtitle ->
+            item {
+                Column {
+                    Text(
+                        text = "Legendas",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${subtitles.size} legenda(s) disponível(is)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+            item {
+                SubtitleRow(
+                    label = "Desativadas",
+                    active = selected == null,
+                    icon = Icons.Rounded.VolumeOff,
+                    onClick = { onSelect(null) }
+                )
+            }
+            items(count = subtitles.size) { index ->
+                val subtitle = subtitles[index]
                 SubtitleRow(
                     label = subtitle.label.ifBlank { "Legenda ${index + 1}" },
                     active = selected == index,
@@ -1589,127 +1610,129 @@ private fun SourcesSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 460.dp)
-                .navigationBarsPadding()
-                .padding(horizontal = 18.dp)
-                .padding(bottom = 18.dp)
+                .heightIn(max = 480.dp)
+                .navigationBarsPadding(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 18.dp,
+                end = 18.dp,
+                bottom = 18.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Fontes disponíveis",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(onClick = onRefresh) {
-                    Text("Atualizar", color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "${streams.size} fonte(s) • toque para trocar",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (unstableCount > 0) {
-                Spacer(Modifier.height(4.dp))
-                TextButton(
-                    onClick = onToggleUnstable,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = if (showUnstable) {
-                            "Ocultar $unstableCount fonte(s) instável(is)"
-                        } else {
-                            "Mostrar $unstableCount fonte(s) instável(is)"
-                        },
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelMedium
+                        text = "Fontes disponíveis",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
                     )
+                    TextButton(onClick = onRefresh) {
+                        Text("Atualizar", color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(count = streams.size) { index ->
-                    val stream = streams[index]
-                    val active = stream.url == selected?.url &&
-                        stream.embed == selected?.embed &&
-                        stream.type == selected?.type
-                    val mismatched = !stream.matchesAudio(requestedAudio)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onSelect(stream) }
-                            .background(
-                                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                else Color.Transparent
-                            )
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                stream.audioBadge?.let { badge ->
-                                    AudioBadge(badge)
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(
-                                    text = stream.label ?: stream.server ?: stream.provider,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+            item {
+                Column {
+                    Text(
+                        text = "${streams.size} fonte(s) • toque para trocar",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (unstableCount > 0) {
+                        TextButton(
+                            onClick = onToggleUnstable,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                        ) {
                             Text(
-                                text = sourceSubtitle(stream),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (!stream.isAlive) {
-                            Text(
-                                text = "instável",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 6.dp)
-                            )
-                        }
-                        if (mismatched) {
-                            Text(
-                                text = "outro áudio",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 6.dp)
-                            )
-                        }
-                        if (active) {
-                            Icon(
-                                Icons.Rounded.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                text = if (showUnstable) {
+                                    "Ocultar $unstableCount fonte(s) instável(is)"
+                                } else {
+                                    "Mostrar $unstableCount fonte(s) instável(is)"
+                                },
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium
                             )
                         }
                     }
                 }
             }
-            Text(
-                text = "Se uma fonte falhar, o app tenta a próxima automaticamente. Role para ver todas.",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 10.dp)
-            )
+            items(count = streams.size) { index ->
+                val stream = streams[index]
+                val active = stream.url == selected?.url &&
+                    stream.embed == selected?.embed &&
+                    stream.type == selected?.type
+                val mismatched = !stream.matchesAudio(requestedAudio)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelect(stream) }
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else Color.Transparent
+                        )
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            stream.audioBadge?.let { badge ->
+                                AudioBadge(badge)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = stream.label ?: stream.server ?: stream.provider,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = sourceSubtitle(stream),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (!stream.isAlive) {
+                        Text(
+                            text = "instável",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 6.dp)
+                        )
+                    }
+                    if (mismatched) {
+                        Text(
+                            text = "outro áudio",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp)
+                        )
+                    }
+                    if (active) {
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+            item {
+                Text(
+                    text = "Se uma fonte falhar, o app tenta a próxima automaticamente. Role para ver todas.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            }
         }
     }
 }
