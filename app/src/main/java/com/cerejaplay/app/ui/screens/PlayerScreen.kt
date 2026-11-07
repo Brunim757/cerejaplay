@@ -2,6 +2,7 @@ package com.cerejaplay.app.ui.screens
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
@@ -84,20 +85,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.VideoSize
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.cerejaplay.app.data.model.AudioChoice
@@ -106,6 +106,8 @@ import com.cerejaplay.app.data.model.Subtitle
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.data.resolve.ResolvedStream
 import com.cerejaplay.app.data.resolve.StreamResolver
+import com.cerejaplay.app.playback.PlaybackHeaders
+import com.cerejaplay.app.playback.PlaybackService
 import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.ErrorState
 import com.cerejaplay.app.ui.components.LoadingState
@@ -295,6 +297,8 @@ fun PlayerScreen(
             else -> {
                 DirectPlayer(
                     stream = state.selected!!,
+                    mediaTitle = state.watch?.title ?: title,
+                    mediaArtwork = backdrop ?: poster,
                     autoplay = config.player.autoplay,
                     startPositionMs = state.startPositionMs,
                     startSpeed = speed,
@@ -474,6 +478,8 @@ private data class DragHint(val icon: ImageVector, val label: String)
 @Composable
 private fun DirectPlayer(
     stream: Stream,
+    mediaTitle: String?,
+    mediaArtwork: String?,
     autoplay: Boolean,
     startPositionMs: Long,
     startSpeed: Float,
@@ -574,22 +580,31 @@ private fun DirectPlayer(
         resolving = false
     }
 
+    var mediaController by remember { mutableStateOf<MediaController?>(null) }
+
+    // Conecta ao serviço de reprodução. O player vive no serviço para que os
+    // controles de tela de bloqueio/notificação do sistema funcionem.
+    DisposableEffect(context) {
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val future = MediaController.Builder(context, token).buildAsync()
+        future.addListener(
+            { runCatching { mediaController = future.get() } },
+            ContextCompat.getMainExecutor(context)
+        )
+        onDispose {
+            mediaController = null
+            runCatching { MediaController.releaseFuture(future) }
+        }
+    }
+
     val media = resolved
-    val exoPlayer = remember(media?.url, media?.headers, stream.type, startPositionMs) {
-        val target = media ?: return@remember null
+    val exoPlayer: MediaController? = mediaController
+
+    LaunchedEffect(media?.url, media?.headers, stream.type, startPositionMs, exoPlayer) {
+        val target = media ?: return@LaunchedEffect
+        val player = exoPlayer ?: return@LaunchedEffect
         runCatching {
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setDefaultRequestProperties(target.headers)
-                .setConnectTimeoutMs(15_000)
-                .setReadTimeoutMs(30_000)
-                .setAllowCrossProtocolRedirects(true)
-
-            // Buffer maior evita microtravadas em HLS com segmentos
-            // criptografados, que respondem com latência variável.
-            val loadControl = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(20_000, 90_000, 1_500, 3_000)
-                .build()
-
+            PlaybackHeaders.headers = target.headers
             val itemBuilder = MediaItem.Builder().setUri(Uri.parse(target.url))
             val subtitleConfigs = stream.subtitles.mapNotNull { subtitle ->
                 val url = subtitle.url ?: return@mapNotNull null
@@ -606,28 +621,17 @@ private fun DirectPlayer(
                     .build()
             }
             if (subtitleConfigs.isNotEmpty()) itemBuilder.setSubtitleConfigurations(subtitleConfigs)
-
-            val mediaItem = itemBuilder.build()
-            val isHls = media.isHls ||
-                stream.type == "hls" ||
-                target.url.contains(".m3u8", ignoreCase = true)
-            val source = if (isHls) {
-                HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-            } else {
-                ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-            }
-
-            ExoPlayer.Builder(context)
-                .setLoadControl(loadControl)
+            val metadata = MediaMetadata.Builder()
+                .setTitle(mediaTitle)
+                .setArtist("CerejaPlay")
+                .apply { mediaArtwork?.let { setArtworkUri(Uri.parse(it)) } }
                 .build()
-                .apply {
-                    setMediaSource(source)
-                    prepare()
-                    if (startPositionMs > 0L) seekTo(startPositionMs)
-                    setPlaybackSpeed(startSpeed)
-                    playWhenReady = autoplay
-                }
-        }.getOrNull()
+            itemBuilder.setMediaMetadata(metadata)
+            player.setMediaItem(itemBuilder.build(), startPositionMs)
+            player.setPlaybackSpeed(startSpeed)
+            player.prepare()
+            player.playWhenReady = autoplay
+        }
     }
 
     val currentSubtitleIndex = rememberUpdatedState(subtitleIndex)
@@ -736,7 +740,10 @@ private fun DirectPlayer(
             val total = runCatching { player.duration }.getOrDefault(0L)
             val current = runCatching { player.currentPosition }.getOrDefault(0L)
             if (total > 0L && current > 0L) onProgress(current, total)
-            player.release()
+            // O player vive no serviço; ao sair da tela paramos a reprodução e
+            // liberamos a mídia, deixando o serviço ocioso.
+            runCatching { player.stop() }
+            runCatching { player.clearMediaItems() }
         }
     }
 
@@ -781,13 +788,19 @@ private fun DirectPlayer(
             }
         }
 
-        exoPlayer == null -> {
+        media == null -> {
             Box(modifier = modifier, contentAlignment = Alignment.Center) {
                 Text(
                     text = "Não foi possível abrir esta fonte. Toque em Fontes para escolher outra.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White
                 )
+            }
+        }
+
+        exoPlayer == null -> {
+            Box(modifier = modifier, contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color.White)
             }
         }
 
@@ -1141,7 +1154,7 @@ private fun NextEpisodeCard(
     }
 }
 
-private fun applySubtitleSelection(player: ExoPlayer, index: Int?) {
+private fun applySubtitleSelection(player: Player, index: Int?) {
     runCatching {
         val builder = player.trackSelectionParameters.buildUpon()
         if (index == null) {
