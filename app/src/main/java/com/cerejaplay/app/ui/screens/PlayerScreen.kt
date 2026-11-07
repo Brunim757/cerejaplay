@@ -621,6 +621,10 @@ private fun DirectPlayer(
                     .build()
             }
             if (subtitleConfigs.isNotEmpty()) itemBuilder.setSubtitleConfigurations(subtitleConfigs)
+            val isHls = media.isHls ||
+                stream.type == "hls" ||
+                target.url.contains(".m3u8", ignoreCase = true)
+            if (isHls) itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
             val metadata = MediaMetadata.Builder()
                 .setTitle(mediaTitle)
                 .setArtist("CerejaPlay")
