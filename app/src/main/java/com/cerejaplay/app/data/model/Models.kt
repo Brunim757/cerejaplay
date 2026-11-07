@@ -439,7 +439,17 @@ data class Stream(
         isDirect || (type == "resolver" && !resolver.isNullOrBlank() && !embed.isNullOrBlank())
     val playTarget: String? get() = url ?: embed
 
-    val isAlive: Boolean get() = verified != false
+    /**
+     * Só escondemos a fonte quando temos certeza de que ela morreu. Fontes
+     * "resolver" são resolvidas no próprio aparelho (com o IP do usuário), então
+     * uma sondagem negativa feita no servidor não conta: elas continuam vivas.
+     */
+    val isAlive: Boolean
+        get() = when {
+            verified != false -> true
+            type == "resolver" -> !resolver.isNullOrBlank() && !embed.isNullOrBlank()
+            else -> false
+        }
 
     /** Rótulo curto de áudio: ORIG / LEG / DUB. */
     val audioBadge: String?
