@@ -28,12 +28,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,19 +76,22 @@ private enum class CatalogFilter(val label: String) {
     Newest("Mais recentes")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CatalogScreen(
     repository: CerejaRepository,
     title: String,
     endpoint: String,
     onOpenDetail: (String, String) -> Unit,
-    onOpenSearch: (() -> Unit)? = null
+    onOpenSearch: (() -> Unit)? = null,
+    kind: String? = null
 ) {
+    val config = LocalAppConfig.current
     val viewModel: CatalogViewModel = viewModel(factory = CatalogViewModel.factory(repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(endpoint) {
-        viewModel.start(endpoint)
+    LaunchedEffect(endpoint, kind) {
+        viewModel.start(endpoint, config.endpoints.categories, kind)
     }
 
     when {
@@ -119,8 +124,13 @@ fun CatalogScreen(
             title = title,
             cards = state.cards,
             loadingMore = state.loadingMore,
+            refreshing = state.refreshing,
             endReached = state.endReached,
+            categories = state.categories,
+            selectedCategory = state.selectedCategory,
             error = state.error,
+            onSelectCategory = viewModel::selectCategory,
+            onRefresh = viewModel::pullRefresh,
             onLoadMore = viewModel::loadMore,
             onRetry = viewModel::refresh,
             onOpenDetail = onOpenDetail,
@@ -129,13 +139,19 @@ fun CatalogScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CatalogGrid(
     title: String,
     cards: List<MediaCard>,
     loadingMore: Boolean,
+    refreshing: Boolean,
     endReached: Boolean,
+    categories: List<String>,
+    selectedCategory: String?,
     error: String?,
+    onSelectCategory: (String?) -> Unit,
+    onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenDetail: (String, String) -> Unit,
@@ -163,6 +179,11 @@ private fun CatalogGrid(
             }
     }
 
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         state = gridState,
@@ -186,6 +207,16 @@ private fun CatalogGrid(
                 total = cards.size,
                 onSelect = { filter = it }
             )
+        }
+
+        if (categories.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "catalog-categories") {
+                CategoryChips(
+                    categories = categories,
+                    selected = selectedCategory,
+                    onSelect = onSelectCategory
+                )
+            }
         }
 
         // Índice + id: mesmo que a API repita um card, a chave nunca colide
@@ -273,6 +304,66 @@ private fun CatalogGrid(
             }
         }
     }
+    }
+}
+
+@Composable
+private fun CategoryChips(
+    categories: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        val options = listOf<String?>(null) + categories
+        options.forEach { option ->
+            val active = selected == option
+            val label = option?.let(::categoryLabel) ?: "Em alta"
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+                border = if (active) null else BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.50f)
+                ),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onSelect(option) }
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (active) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun categoryLabel(value: String): String = when (value) {
+    "trending" -> "Em alta"
+    "popular" -> "Populares"
+    "top-rated" -> "Melhores notas"
+    "upcoming" -> "Em breve"
+    "now-playing" -> "Em cartaz"
+    "airing-today" -> "Hoje"
+    "on-the-air" -> "No ar"
+    "top-100" -> "Top 100"
+    "season" -> "Temporada"
+    "movies" -> "Filmes"
+    "genre" -> "Gênero"
+    "studio" -> "Estúdio"
+    "random" -> "Aleatório"
+    else -> value.replaceFirstChar { it.uppercase() }
 }
 
 @Composable

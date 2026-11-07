@@ -38,20 +38,47 @@ private val CerejaShapes = Shapes(
 @Composable
 fun CerejaPlayTheme(
     config: ThemeConfig = ThemeConfig(),
+    appearance: String = "dark",
     content: @Composable () -> Unit
 ) {
     val primary = parseHexColor(config.primary, CerejaRed)
     val onPrimary = parseHexColor(config.onPrimary, readableOn(primary))
     val secondary = parseHexColor(config.secondary, CerejaRedLight)
-    val background = parseHexColor(config.background, CerejaBackground)
-    val surface = parseHexColor(config.surface, CerejaSurface)
-    val surfaceVariant = parseHexColor(config.surfaceVariant, CerejaSurfaceVariant)
-    val onSurface = parseHexColor(config.onSurface, CerejaWhite)
-    val muted = parseHexColor(config.muted, CerejaMuted)
-    val outline = parseHexColor(config.outline, CerejaOutline)
+    val amoled = appearance == "amoled"
+    val light = appearance == "light"
+    val background = when {
+        amoled -> Color.Black
+        light -> Color(0xFFF8F7F9)
+        else -> parseHexColor(config.background, CerejaBackground)
+    }
+    val surface = when {
+        amoled -> Color(0xFF060608)
+        light -> Color.White
+        else -> parseHexColor(config.surface, CerejaSurface)
+    }
+    val surfaceVariant = when {
+        amoled -> Color(0xFF101014)
+        light -> Color(0xFFEFEDF2)
+        else -> parseHexColor(config.surfaceVariant, CerejaSurfaceVariant)
+    }
+    val onSurface = when {
+        light -> Color(0xFF17171C)
+        else -> parseHexColor(config.onSurface, CerejaWhite)
+    }
+    val muted = when {
+        light -> Color(0xFF5C5C66)
+        else -> parseHexColor(config.muted, CerejaMuted)
+    }
+    val outline = when {
+        light -> Color(0xFFD4D1DA)
+        amoled -> Color(0xFF1E1E24)
+        else -> parseHexColor(config.outline, CerejaOutline)
+    }
     val error = parseHexColor(config.error, CerejaError)
 
-    val useDark = if (config.dark) true else isSystemInDarkTheme()
+    // O modo claro/escuro é uma preferência do usuário; "amoled" e "dark" são
+    // escuros, "light" força o esquema claro.
+    val useDark = !light && (amoled || config.dark || isSystemInDarkTheme())
     val scheme = if (useDark) {
         darkColorScheme(
             primary = primary,
@@ -73,8 +100,8 @@ fun CerejaPlayTheme(
             surfaceContainerLowest = background,
             surfaceContainerLow = surface,
             surfaceContainer = surface,
-            surfaceContainerHigh = CerejaSurfaceElevated,
-            surfaceContainerHighest = Color(0xFF242430),
+            surfaceContainerHigh = if (amoled) Color(0xFF141418) else CerejaSurfaceElevated,
+            surfaceContainerHighest = if (amoled) Color(0xFF1B1B20) else Color(0xFF242430),
             outline = outline,
             outlineVariant = outline,
             error = error,
@@ -89,17 +116,17 @@ fun CerejaPlayTheme(
             onPrimaryContainer = CerejaRedDeep,
             secondary = Color(0xFF8A6400),
             onSecondary = Color.White,
-            background = Color(0xFFF8F7F9),
-            onBackground = Color(0xFF17171C),
-            surface = Color.White,
-            onSurface = Color(0xFF17171C),
-            surfaceVariant = Color(0xFFEFEDF2),
-            onSurfaceVariant = Color(0xFF5C5C66),
-            surfaceContainerLow = Color(0xFFF8F7F9),
-            surfaceContainer = Color.White,
-            surfaceContainerHigh = Color(0xFFEFEDF2),
+            background = background,
+            onBackground = onSurface,
+            surface = surface,
+            onSurface = onSurface,
+            surfaceVariant = surfaceVariant,
+            onSurfaceVariant = muted,
+            surfaceContainerLow = background,
+            surfaceContainer = surface,
+            surfaceContainerHigh = surfaceVariant,
             surfaceContainerHighest = Color(0xFFE6E3EA),
-            outline = Color(0xFFD4D1DA),
+            outline = outline,
             outlineVariant = Color(0xFFE4E1E8),
             error = error,
             onError = Color.White

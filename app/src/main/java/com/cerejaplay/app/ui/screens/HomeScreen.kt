@@ -29,11 +29,13 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cerejaplay.app.data.model.MediaCard
+import com.cerejaplay.app.data.model.UserSettings
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.CerejaTopBar
@@ -67,22 +70,29 @@ import com.cerejaplay.app.ui.components.TopRankCard
 import com.cerejaplay.app.ui.components.cleanMediaTitle
 import com.cerejaplay.app.ui.viewmodel.HomeViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     repository: CerejaRepository,
     onOpenDetail: (String, String) -> Unit,
     onPlay: (String, String, Int, Int, String, String?, String?) -> Unit,
     onOpenTab: (String) -> Unit,
-    onOpenMyList: () -> Unit
+    onOpenMyList: () -> Unit,
+    settings: UserSettings = UserSettings(),
+    onThemeSelected: (String) -> Unit = {},
+    onProfileSelected: (String) -> Unit = {}
 ) {
     val config = LocalAppConfig.current
     val viewModel: HomeViewModel = viewModel(factory = HomeViewModel.factory(repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
 
     LaunchedEffect(config.endpoints.home) {
         viewModel.load(config.endpoints.home)
+    }
+
+    LaunchedEffect(config.endpoints.becauseYouWatched) {
+        viewModel.configureBecauseYouWatched(config.endpoints.becauseYouWatched)
     }
 
     if (showSettings) {
@@ -93,6 +103,8 @@ fun HomeScreen(
             onAudioSelected = viewModel::setAudio,
             onQualitySelected = viewModel::setQuality,
             onLanguageSelected = viewModel::setLanguage,
+            onThemeSelected = onThemeSelected,
+            onProfileSelected = onProfileSelected,
             onClearHistory = viewModel::clearHistory,
             onDismiss = { showSettings = false }
         )
@@ -175,6 +187,11 @@ fun HomeScreen(
             }
 
             else -> {
+                PullToRefreshBox(
+                    isRefreshing = state.refreshing,
+                    onRefresh = viewModel::refresh,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 34.dp)
@@ -420,6 +437,33 @@ fun HomeScreen(
                         }
                     }
 
+                    state.becauseRows.forEach { row ->
+                        item(key = "because-header-${row.id}") {
+                            SectionHeader(
+                                title = row.title,
+                                subtitle = "Recomendado para você"
+                            )
+                        }
+                        item(key = "because-row-${row.id}") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                itemsIndexed(
+                                    row.items,
+                                    key = { index, card -> "because-$index-${card.type}:${card.stableId}" }
+                                ) { _, card ->
+                                    PosterCard(
+                                        card = card,
+                                        width = 138.dp,
+                                        onClick = { onOpenDetail(card.type, card.stableId) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+
                     item(key = "brand-footer") {
                         Column(
                             modifier = Modifier
@@ -437,6 +481,7 @@ fun HomeScreen(
                             )
                         }
                     }
+                }
                 }
             }
         }

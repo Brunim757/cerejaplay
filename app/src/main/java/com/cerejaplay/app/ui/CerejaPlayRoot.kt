@@ -86,14 +86,21 @@ import com.cerejaplay.app.ui.theme.CerejaPlayTheme
 fun CerejaPlayRoot(container: AppContainer) {
     val viewModel: MainViewModel = viewModel(factory = MainViewModel.factory(container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
-    CerejaPlayTheme(config = state.config?.theme ?: ThemeConfig()) {
+    CerejaPlayTheme(config = state.config?.theme ?: ThemeConfig(), appearance = settings.theme) {
         val config = state.config
         if (config == null) {
             BootScreen()
         } else {
             CompositionLocalProvider(LocalAppConfig provides config) {
-                AppNavigation(config = config, repository = container.repository)
+                AppNavigation(
+                    config = config,
+                    repository = container.repository,
+                    settings = settings,
+                    onThemeSelected = viewModel::setTheme,
+                    onProfileSelected = viewModel::setProfile
+                )
             }
         }
     }
@@ -182,7 +189,13 @@ private fun BootScreen() {
 }
 
 @Composable
-private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
+private fun AppNavigation(
+    config: AppConfig,
+    repository: CerejaRepository,
+    settings: com.cerejaplay.app.data.model.UserSettings,
+    onThemeSelected: (String) -> Unit,
+    onProfileSelected: (String) -> Unit
+) {
     val navController = rememberNavController()
     val tabs = remember(config.tabs) {
         config.tabs.filter { it.id.isNotBlank() }.ifEmpty { DefaultConfig.value.tabs }
@@ -252,7 +265,10 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                                 )
                             },
                             onOpenTab = { tabId -> openTab(tabId) },
-                            onOpenMyList = { navController.navigate("mylist") }
+                            onOpenMyList = { navController.navigate("mylist") },
+                            settings = settings,
+                            onThemeSelected = onThemeSelected,
+                            onProfileSelected = onProfileSelected
                         )
 
                         "search" -> SearchScreen(
@@ -267,6 +283,7 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                         else -> CatalogScreen(
                             repository = repository,
                             title = tab.title,
+                            kind = kindForTab(tab),
                             endpoint = catalogEndpoint(tab, config),
                             onOpenDetail = { type, id ->
                                 navController.navigate(detailRoute(type, id))
@@ -304,6 +321,9 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                     type = type,
                     id = id,
                     onBack = { navController.popBackStack() },
+                    onOpenDetail = { relatedType, relatedId ->
+                        navController.navigate(detailRoute(relatedType, relatedId))
+                    },
                     onPlay = { season, episode, title, poster, backdrop ->
                         navController.navigate(
                             playerRoute(type, id, season, episode, title, poster, backdrop)
@@ -444,6 +464,19 @@ private fun catalogEndpoint(tab: TabConfig, config: AppConfig): String {
         "series" -> config.endpoints.catalog.series
         "anime" -> config.endpoints.catalog.animes
         else -> config.endpoints.catalog.movies
+    }
+}
+
+private fun kindForTab(tab: TabConfig): String = when (tab.mediaType) {
+    "movie" -> "movies"
+    "series" -> "series"
+    "anime" -> "animes"
+    else -> {
+        when {
+            tab.endpoint?.contains("animes") == true -> "animes"
+            tab.endpoint?.contains("series") == true -> "series"
+            else -> "movies"
+        }
     }
 }
 

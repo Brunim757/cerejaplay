@@ -4,6 +4,7 @@ import com.cerejaplay.app.data.api.CerejaService
 import com.cerejaplay.app.data.model.ApiErrorBody
 import com.cerejaplay.app.data.model.AppConfig
 import com.cerejaplay.app.data.model.AudioChoice
+import com.cerejaplay.app.data.model.CalendarEntry
 import com.cerejaplay.app.data.model.CatalogEndpoints
 import com.cerejaplay.app.data.model.DetailResponse
 import com.cerejaplay.app.data.model.EndpointsConfig
@@ -13,6 +14,7 @@ import com.cerejaplay.app.data.model.ListResponse
 import com.cerejaplay.app.data.model.MediaCard
 import com.cerejaplay.app.data.model.MediaDetail
 import com.cerejaplay.app.data.model.PreferencesConfig
+import com.cerejaplay.app.data.model.RelatedItem
 import com.cerejaplay.app.data.model.SearchResponse
 import com.cerejaplay.app.data.model.TabConfig
 import com.cerejaplay.app.data.model.UserSettings
@@ -85,8 +87,17 @@ class CerejaRepository(
     suspend fun home(endpoint: String): List<com.cerejaplay.app.data.model.HomeRow> =
         call { service.home(endpoint) }.data.rows
 
-    suspend fun catalog(endpoint: String, page: Int): ListResponse =
-        call { service.catalog(endpoint, page) }
+    suspend fun becauseYouWatched(
+        endpoint: String,
+        seeds: List<Pair<String, String>>
+    ): List<com.cerejaplay.app.data.model.HomeRow> {
+        if (seeds.isEmpty()) return emptyList()
+        val encoded = seeds.joinToString(",") { (type, id) -> "$type:$id" }
+        return call { service.becauseYouWatched(endpoint, encoded) }.data.rows
+    }
+
+    suspend fun catalog(endpoint: String, page: Int, category: String? = null): ListResponse =
+        call { service.catalog(endpoint, page, category) }
 
     suspend fun search(endpoint: String, query: String, page: Int = 1): SearchResponse =
         call { service.search(endpoint, query, page) }
@@ -94,6 +105,31 @@ class CerejaRepository(
     suspend fun detail(endpoint: String, type: String, id: String): MediaDetail =
         call { service.detail(endpoint, type, id) }.data
             ?: throw ApiFailure("Conteúdo não encontrado")
+
+    suspend fun related(endpoint: String, type: String, id: String): List<RelatedItem> =
+        call { service.related(endpoint, type, id) }.data
+
+    suspend fun recommendations(endpoint: String, type: String, id: String): List<MediaCard> =
+        call { service.recommendations(endpoint, type, id) }.data
+
+    suspend fun categories(endpoint: String, kind: String): List<String> =
+        call { service.categories("$endpoint/$kind") }.data.categories
+
+    suspend fun genres(endpoint: String, kind: String): List<String> =
+        call { service.genres("$endpoint/$kind") }.data.genres
+
+    suspend fun discover(
+        endpoint: String,
+        kind: String,
+        genre: String? = null,
+        year: Int? = null,
+        minRating: Double? = null,
+        sort: String? = null,
+        page: Int = 1
+    ): ListResponse = call { service.discover(endpoint, kind, genre, year, minRating, sort, page) }
+
+    suspend fun calendar(endpoint: String, days: Int = 7): List<CalendarEntry> =
+        call { service.calendar(endpoint, days) }.data
 
     suspend fun watch(
         endpoint: String,
@@ -200,6 +236,8 @@ class CerejaRepository(
     suspend fun updateAudio(value: String) = preferences.updateAudio(value)
     suspend fun updateQuality(value: String) = preferences.updateQuality(value)
     suspend fun updateLanguage(value: String) = preferences.updateLanguage(value)
+    suspend fun updateTheme(value: String) = preferences.updateTheme(value)
+    suspend fun updateProfile(value: String) = preferences.updateProfile(value)
     suspend fun clearHistory() = preferences.clearHistory()
 
     private suspend fun <T> call(block: suspend () -> T): T {

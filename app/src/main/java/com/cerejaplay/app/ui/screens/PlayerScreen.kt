@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.util.Rational
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -303,6 +304,8 @@ fun PlayerScreen(
                     locked = locked,
                     onLockedChange = { locked = it },
                     subtitleIndex = subtitleIndex,
+                    intro = state.watch?.intro,
+                    outro = state.watch?.outro,
                     hasNextEpisode = canGoNext,
                     nextCountdown = NEXT_EPISODE_COUNTDOWN,
                     onNextEpisode = {
@@ -480,6 +483,8 @@ private fun DirectPlayer(
     locked: Boolean,
     onLockedChange: (Boolean) -> Unit,
     subtitleIndex: Int?,
+    intro: com.cerejaplay.app.data.model.SkipInterval?,
+    outro: com.cerejaplay.app.data.model.SkipInterval?,
     hasNextEpisode: Boolean,
     nextCountdown: Int,
     onNextEpisode: () -> Unit,
@@ -735,6 +740,21 @@ private fun DirectPlayer(
         }
     }
 
+    val activeSkip: Pair<Long, String>? = run {
+        val ms = position
+        val introActive = intro != null &&
+            ms >= (intro.start * 1000).toLong() &&
+            ms < (intro.end * 1000).toLong()
+        val outroActive = outro != null &&
+            ms >= (outro.start * 1000).toLong() &&
+            ms < (outro.end * 1000).toLong()
+        when {
+            introActive -> ((intro!!.end * 1000).toLong() + 500L) to "Pular abertura"
+            outroActive -> ((outro!!.end * 1000).toLong() + 500L) to "Pular encerramento"
+            else -> null
+        }
+    }
+
     when {
         resolving -> {
             Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -913,6 +933,34 @@ private fun DirectPlayer(
                                 style = MaterialTheme.typography.titleMedium,
                                 color = Color.White,
                                 fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                activeSkip?.let { (target, label) ->
+                    if (!locked) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Black.copy(alpha = 0.68f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .navigationBarsPadding()
+                                .padding(end = 18.dp, bottom = 88.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    exoPlayer.seekTo(target)
+                                    position = target
+                                    setShowControls(true)
+                                }
+                        ) {
+                            Text(
+                                text = label,
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                             )
                         }
                     }

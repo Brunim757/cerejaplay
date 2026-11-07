@@ -35,5 +35,19 @@ data class HistoryItem(
 data class UserSettings(
     val audio: String = "dub",
     val quality: String = "auto",
-    val language: String = "pt-BR"
+    val language: String = "pt-BR",
+    val theme: String = "dark",
+    val profile: String = "principal"
+)
+
+@Serializable
+data class Profile(
+    val id: String,
+    val name: String
+)
+
+val defaultProfiles: List<Profile> = listOf(
+    Profile("principal", "Principal"),
+    Profile("infantil", "Infantil"),
+    Profile("cinéfilo", "Cinéfilo")
 )

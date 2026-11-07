@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +36,9 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.Button
@@ -60,18 +63,26 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.cerejaplay.app.data.model.CastMember
+import com.cerejaplay.app.data.model.MediaCard
 import com.cerejaplay.app.data.model.MediaDetail
+import com.cerejaplay.app.data.model.RelatedItem
+import com.cerejaplay.app.data.model.Trailer
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.CerejaWordmark
 import com.cerejaplay.app.ui.components.ErrorState
+import com.cerejaplay.app.ui.components.LandscapeCard
+import com.cerejaplay.app.ui.components.PosterCard
 import com.cerejaplay.app.ui.components.SectionHeader
 import com.cerejaplay.app.ui.components.SkeletonBox
 import com.cerejaplay.app.ui.components.cleanMediaTitle
@@ -85,14 +96,31 @@ fun DetailScreen(
     type: String,
     id: String,
     onBack: () -> Unit,
-    onPlay: (season: Int, episode: Int, title: String, poster: String?, backdrop: String?) -> Unit
+    onPlay: (season: Int, episode: Int, title: String, poster: String?, backdrop: String?) -> Unit,
+    onOpenDetail: (String, String) -> Unit = { _, _ -> }
 ) {
     val config = LocalAppConfig.current
+    val context = LocalContext.current
     val viewModel: DetailViewModel = viewModel(factory = DetailViewModel.factory(repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(type, id, config.endpoints.detail) {
-        viewModel.load(config.endpoints.detail, type, id)
+        viewModel.load(
+            detailEndpoint = config.endpoints.detail,
+            relatedEndpoint = config.endpoints.related,
+            recommendationsEndpoint = config.endpoints.recommendations,
+            type = type,
+            id = id
+        )
+    }
+
+    fun share(detail: MediaDetail) {
+        val text = "${detail.title} — no CerejaPlay"
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            this.type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, text)
+        }
+        runCatching { context.startActivity(android.content.Intent.createChooser(intent, "Compartilhar")) }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -104,7 +132,16 @@ fun DetailScreen(
                     Spacer(Modifier.statusBarsPadding())
                     ErrorState(
                         message = state.error ?: "",
-                        onRetry = { viewModel.load(config.endpoints.detail, type, id, true) }
+                        onRetry = {
+                            viewModel.load(
+                                detailEndpoint = config.endpoints.detail,
+                                relatedEndpoint = config.endpoints.related,
+                                recommendationsEndpoint = config.endpoints.recommendations,
+                                type = type,
+                                id = id,
+                                force = true
+                            )
+                        }
                     )
                 }
             }
@@ -114,8 +151,12 @@ fun DetailScreen(
                     detail = state.detail!!,
                     selectedSeason = state.selectedSeason,
                     isFavorite = state.isFavorite,
+                    related = state.related,
+                    recommendations = state.recommendations,
                     onSelectSeason = viewModel::selectSeason,
                     onToggleFavorite = viewModel::toggleFavorite,
+                    onOpenDetail = onOpenDetail,
+                    onShare = { state.detail?.let(::share) },
                     onPlay = onPlay
                 )
             }
@@ -132,20 +173,42 @@ fun DetailScreen(
                 )
         )
 
-        IconButton(
-            onClick = onBack,
+        Row(
             modifier = Modifier
                 .statusBarsPadding()
-                .padding(10.dp)
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.46f))
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Rounded.ArrowBack,
-                contentDescription = "Voltar",
-                tint = Color.White
-            )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.46f))
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowBack,
+                    contentDescription = "Voltar",
+                    tint = Color.White
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (state.detail != null) {
+                IconButton(
+                    onClick = { state.detail?.let(::share) },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.46f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Share,
+                        contentDescription = "Compartilhar",
+                        tint = Color.White
+                    )
+                }
+            }
         }
     }
 }
@@ -155,10 +218,15 @@ private fun DetailContent(
     detail: MediaDetail,
     selectedSeason: Int,
     isFavorite: Boolean,
+    related: List<RelatedItem>,
+    recommendations: List<MediaCard>,
     onSelectSeason: (Int) -> Unit,
     onToggleFavorite: () -> Unit,
+    onOpenDetail: (String, String) -> Unit,
+    onShare: () -> Unit,
     onPlay: (Int, Int, String, String?, String?) -> Unit
 ) {
+    val context = LocalContext.current
     val title = detail.title.cleanMediaTitle()
     // O scraper de alguns animes devolve o mesmo episódio em dublado e
     // legendado. Deduplicar evita uma lista repetida.
@@ -288,6 +356,91 @@ private fun DetailContent(
 
         item(key = "about") {
             AboutSection(detail = detail, episodeCount = episodeNumbers.size)
+        }
+
+        if (detail.trailer?.url != null) {
+            item(key = "trailer-header") {
+                SectionHeader(title = "Trailer", subtitle = "Assista à prévia oficial")
+            }
+            item(key = "trailer") {
+                TrailerCard(
+                    trailer = detail.trailer,
+                    backdrop = detail.backdrop ?: detail.poster,
+                    onClick = {
+                        val url = detail.trailer?.url ?: return@TrailerCard
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(url)
+                        )
+                        runCatching { context.startActivity(intent) }
+                    }
+                )
+            }
+        }
+
+        if (detail.cast.isNotEmpty()) {
+            item(key = "cast-header") {
+                SectionHeader(title = "Elenco", subtitle = "Quem está em cena")
+            }
+            item(key = "cast-row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(
+                        detail.cast,
+                        key = { index, member -> "cast-$index-${member.id ?: member.name}" }
+                    ) { _, member ->
+                        CastCard(member)
+                    }
+                }
+            }
+        }
+
+        if (related.isNotEmpty()) {
+            item(key = "related-header") {
+                SectionHeader(title = "Relacionados", subtitle = "Da mesma franquia")
+            }
+            item(key = "related-row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(
+                        related,
+                        key = { index, entry -> "related-$index-${entry.item.type}:${entry.item.stableId}" }
+                    ) { _, entry ->
+                        PosterCard(
+                            card = entry.item,
+                            width = 138.dp,
+                            onClick = { onOpenDetail(entry.item.type, entry.item.stableId) }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (recommendations.isNotEmpty()) {
+            item(key = "recommendations-header") {
+                SectionHeader(title = "Recomendados", subtitle = "Você também pode gostar")
+            }
+            item(key = "recommendations-row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(
+                        recommendations,
+                        key = { index, card -> "rec-$index-${card.type}:${card.stableId}" }
+                    ) { _, card ->
+                        PosterCard(
+                            card = card,
+                            width = 138.dp,
+                            onClick = { onOpenDetail(card.type, card.stableId) }
+                        )
+                    }
+                }
+            }
         }
 
         item(key = "brand") {
@@ -902,6 +1055,103 @@ private fun statusLabel(status: String?): String = when (status?.lowercase()) {
     "in production" -> "Em produção"
     "planned" -> "Planejado"
     else -> status ?: "—"
+}
+
+@Composable
+private fun TrailerCard(trailer: Trailer?, backdrop: String?, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp)
+            .height(190.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+    ) {
+        AsyncImage(
+            model = backdrop,
+            contentDescription = trailer?.name,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.12f), Color.Black.copy(alpha = 0.72f))
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(58.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.92f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = "Reproduzir trailer",
+                tint = Color(0xFF0A0A0E),
+                modifier = Modifier.size(30.dp)
+            )
+        }
+        Text(
+            text = trailer?.name ?: "Trailer oficial",
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(12.dp)
+        )
+    }
+}
+
+@Composable
+private fun CastCard(member: CastMember) {
+    Column(
+        modifier = Modifier.width(96.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(82.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            AsyncImage(
+                model = member.photo,
+                contentDescription = member.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(
+            text = member.name,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        member.character?.takeIf { it.isNotBlank() }?.let { character ->
+            Text(
+                text = character,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
 }
 
 @Composable

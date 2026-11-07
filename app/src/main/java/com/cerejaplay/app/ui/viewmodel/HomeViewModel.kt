@@ -21,7 +21,9 @@ data class HomeUiState(
     val rows: List<HomeRow> = emptyList(),
     val history: List<HistoryItem> = emptyList(),
     val favorites: List<MediaCard> = emptyList(),
+    val becauseRows: List<HomeRow> = emptyList(),
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null
 )
 
@@ -34,11 +36,13 @@ class HomeViewModel(private val repository: CerejaRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserSettings())
 
     private var loadedEndpoint: String? = null
+    private var becauseEndpoint: String? = null
 
     init {
         viewModelScope.launch {
             repository.history.collect { history ->
                 _state.update { it.copy(history = history) }
+                if (becauseEndpoint != null) loadBecauseYouWatched(force = false)
             }
         }
         viewModelScope.launch {
@@ -52,14 +56,46 @@ class HomeViewModel(private val repository: CerejaRepository) : ViewModel() {
         if (!force && loadedEndpoint == endpoint && _state.value.rows.isNotEmpty()) return
         loadedEndpoint = endpoint
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            _state.update { it.copy(loading = !it.refreshing, error = null) }
             runCatching { repository.home(endpoint) }
                 .onSuccess { rows ->
-                    _state.update { it.copy(rows = rows, loading = false, error = null) }
+                    _state.update { it.copy(rows = rows, loading = false, refreshing = false, error = null) }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(loading = false, error = error.message ?: "Falha ao carregar") }
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            refreshing = false,
+                            error = error.message ?: "Falha ao carregar"
+                        )
+                    }
                 }
+        }
+    }
+
+    fun refresh() {
+        val endpoint = loadedEndpoint ?: return
+        _state.update { it.copy(refreshing = true, error = null) }
+        load(endpoint, force = true)
+        loadBecauseYouWatched(force = true)
+    }
+
+    fun configureBecauseYouWatched(endpoint: String) {
+        becauseEndpoint = endpoint
+        loadBecauseYouWatched(force = false)
+    }
+
+    private fun loadBecauseYouWatched(force: Boolean) {
+        val endpoint = becauseEndpoint ?: return
+        if (!force && _state.value.becauseRows.isNotEmpty()) return
+        val seeds = _state.value.history
+            .distinctBy { "${it.type}:${it.id}" }
+            .take(4)
+            .map { it.type to it.id }
+        if (seeds.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { repository.becauseYouWatched(endpoint, seeds) }
+                .onSuccess { rows -> _state.update { it.copy(becauseRows = rows) } }
         }
     }
 

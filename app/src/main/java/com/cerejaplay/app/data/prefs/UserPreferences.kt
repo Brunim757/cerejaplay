@@ -19,6 +19,8 @@ import kotlinx.serialization.json.Json
 
 private val Context.cerejaDataStore: DataStore<Preferences> by preferencesDataStore(name = "cereja_prefs")
 
+const val DEFAULT_PROFILE = "principal"
+
 class UserPreferences(private val context: Context, private val json: Json) {
 
     private object Keys {
@@ -26,29 +28,43 @@ class UserPreferences(private val context: Context, private val json: Json) {
         val AUDIO = stringPreferencesKey("audio")
         val QUALITY = stringPreferencesKey("quality")
         val LANGUAGE = stringPreferencesKey("language")
+        val THEME = stringPreferencesKey("theme")
+        val PROFILE = stringPreferencesKey("profile")
+        // Chaves legadas (perfil único) para migração transparente.
         val HISTORY = stringPreferencesKey("history_json")
         val FAVORITES = stringPreferencesKey("favorites_json")
         val RECENT_SEARCHES = stringPreferencesKey("recent_searches_json")
     }
 
+    private fun historyKey(profile: String) = stringPreferencesKey("history_json_$profile")
+    private fun favoritesKey(profile: String) = stringPreferencesKey("favorites_json_$profile")
+    private fun searchesKey(profile: String) = stringPreferencesKey("recent_searches_json_$profile")
+
+    private fun profileOf(prefs: Preferences): String = prefs[Keys.PROFILE] ?: DEFAULT_PROFILE
+
     val settings: Flow<UserSettings> = context.cerejaDataStore.data.map { prefs ->
         UserSettings(
             audio = prefs[Keys.AUDIO] ?: "dub",
             quality = prefs[Keys.QUALITY] ?: "auto",
-            language = prefs[Keys.LANGUAGE] ?: "pt-BR"
+            language = prefs[Keys.LANGUAGE] ?: "pt-BR",
+            theme = prefs[Keys.THEME] ?: "dark",
+            profile = profileOf(prefs)
         )
     }
 
     val history: Flow<List<HistoryItem>> = context.cerejaDataStore.data.map { prefs ->
-        decodeHistory(prefs[Keys.HISTORY])
+        val profile = profileOf(prefs)
+        decodeHistory(prefs[historyKey(profile)] ?: prefs[Keys.HISTORY])
     }
 
     val favorites: Flow<List<MediaCard>> = context.cerejaDataStore.data.map { prefs ->
-        decodeCards(prefs[Keys.FAVORITES])
+        val profile = profileOf(prefs)
+        decodeCards(prefs[favoritesKey(profile)] ?: prefs[Keys.FAVORITES])
     }
 
     val recentSearches: Flow<List<String>> = context.cerejaDataStore.data.map { prefs ->
-        decodeSearches(prefs[Keys.RECENT_SEARCHES])
+        val profile = profileOf(prefs)
+        decodeSearches(prefs[searchesKey(profile)] ?: prefs[Keys.RECENT_SEARCHES])
     }
 
     suspend fun updateAudio(audio: String) {
@@ -63,6 +79,15 @@ class UserPreferences(private val context: Context, private val json: Json) {
         context.cerejaDataStore.edit { it[Keys.LANGUAGE] = language }
     }
 
+    suspend fun updateTheme(theme: String) {
+        context.cerejaDataStore.edit { it[Keys.THEME] = theme }
+    }
+
+    suspend fun updateProfile(profile: String) {
+        val cleaned = profile.trim().ifBlank { DEFAULT_PROFILE }
+        context.cerejaDataStore.edit { it[Keys.PROFILE] = cleaned }
+    }
+
     suspend fun cacheConfig(config: AppConfig) {
         val encoded = runCatching { json.encodeToString(AppConfig.serializer(), config) }.getOrNull() ?: return
         context.cerejaDataStore.edit { it[Keys.CONFIG] = encoded }
@@ -74,7 +99,10 @@ class UserPreferences(private val context: Context, private val json: Json) {
     }
 
     suspend fun addHistory(item: HistoryItem) {
-        val current = context.cerejaDataStore.data.first()[Keys.HISTORY].let(::decodeHistory)
+        val prefs = context.cerejaDataStore.data.first()
+        val profile = profileOf(prefs)
+        val key = historyKey(profile)
+        val current = decodeHistory(prefs[key] ?: prefs[Keys.HISTORY])
         val previous = current.firstOrNull { it.key == item.key }
         // Mantém o progresso somente quando é o mesmo episódio/filme. Ao trocar
         // de episódio o player deve começar do início.
@@ -87,7 +115,7 @@ class UserPreferences(private val context: Context, private val json: Json) {
         )
         val updated = (listOf(merged) + current.filterNot { it.key == item.key }).take(30)
         val encoded = runCatching { json.encodeToString(ListSerializer(HistoryItem.serializer()), updated) }.getOrNull() ?: return
-        context.cerejaDataStore.edit { it[Keys.HISTORY] = encoded }
+        context.cerejaDataStore.edit { it[key] = encoded }
     }
 
     suspend fun updateProgress(
@@ -98,7 +126,10 @@ class UserPreferences(private val context: Context, private val json: Json) {
         positionMs: Long,
         durationMs: Long
     ) {
-        val current = context.cerejaDataStore.data.first()[Keys.HISTORY].let(::decodeHistory)
+        val prefs = context.cerejaDataStore.data.first()
+        val profile = profileOf(prefs)
+        val key = historyKey(profile)
+        val current = decodeHistory(prefs[key] ?: prefs[Keys.HISTORY])
         if (current.isEmpty()) return
         var changed = false
         val updated = current.map { item ->
@@ -117,37 +148,51 @@ class UserPreferences(private val context: Context, private val json: Json) {
         }
         if (!changed) return
         val encoded = runCatching { json.encodeToString(ListSerializer(HistoryItem.serializer()), updated) }.getOrNull() ?: return
-        context.cerejaDataStore.edit { it[Keys.HISTORY] = encoded }
+        context.cerejaDataStore.edit { it[key] = encoded }
     }
 
     suspend fun clearHistory() {
-        context.cerejaDataStore.edit { it.remove(Keys.HISTORY) }
+        val profile = profileOf(context.cerejaDataStore.data.first())
+        context.cerejaDataStore.edit {
+            it.remove(historyKey(profile))
+            it.remove(Keys.HISTORY)
+        }
     }
 
     suspend fun toggleFavorite(card: MediaCard) {
-        val current = context.cerejaDataStore.data.first()[Keys.FAVORITES].let(::decodeCards)
-        val key = "${card.type}:${card.stableId}"
-        val exists = current.any { "${it.type}:${it.stableId}" == key }
+        val prefs = context.cerejaDataStore.data.first()
+        val profile = profileOf(prefs)
+        val key = favoritesKey(profile)
+        val current = decodeCards(prefs[key] ?: prefs[Keys.FAVORITES])
+        val cardKey = "${card.type}:${card.stableId}"
+        val exists = current.any { "${it.type}:${it.stableId}" == cardKey }
         val updated = if (exists) {
-            current.filterNot { "${it.type}:${it.stableId}" == key }
+            current.filterNot { "${it.type}:${it.stableId}" == cardKey }
         } else {
             (listOf(card) + current).take(120)
         }
         val encoded = runCatching { json.encodeToString(ListSerializer(MediaCard.serializer()), updated) }.getOrNull() ?: return
-        context.cerejaDataStore.edit { it[Keys.FAVORITES] = encoded }
+        context.cerejaDataStore.edit { it[key] = encoded }
     }
 
     suspend fun addRecentSearch(query: String) {
         val trimmed = query.trim()
         if (trimmed.length < 2) return
-        val current = context.cerejaDataStore.data.first()[Keys.RECENT_SEARCHES].let(::decodeSearches)
+        val prefs = context.cerejaDataStore.data.first()
+        val profile = profileOf(prefs)
+        val key = searchesKey(profile)
+        val current = decodeSearches(prefs[key] ?: prefs[Keys.RECENT_SEARCHES])
         val updated = (listOf(trimmed) + current.filterNot { it.equals(trimmed, ignoreCase = true) }).take(8)
         val encoded = runCatching { json.encodeToString(ListSerializer(String.serializer()), updated) }.getOrNull() ?: return
-        context.cerejaDataStore.edit { it[Keys.RECENT_SEARCHES] = encoded }
+        context.cerejaDataStore.edit { it[key] = encoded }
     }
 
     suspend fun clearRecentSearches() {
-        context.cerejaDataStore.edit { it.remove(Keys.RECENT_SEARCHES) }
+        val profile = profileOf(context.cerejaDataStore.data.first())
+        context.cerejaDataStore.edit {
+            it.remove(searchesKey(profile))
+            it.remove(Keys.RECENT_SEARCHES)
+        }
     }
 
     private fun decodeHistory(encoded: String?): List<HistoryItem> {

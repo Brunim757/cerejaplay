@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.cerejaplay.app.data.model.MediaCard
 import com.cerejaplay.app.data.model.MediaDetail
+import com.cerejaplay.app.data.model.RelatedItem
 import com.cerejaplay.app.data.repo.CerejaRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,9 @@ data class DetailUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val selectedSeason: Int = 1,
-    val favorites: List<MediaCard> = emptyList()
+    val favorites: List<MediaCard> = emptyList(),
+    val related: List<RelatedItem> = emptyList(),
+    val recommendations: List<MediaCard> = emptyList()
 ) {
     val isFavorite: Boolean
         get() = detail != null && favorites.any {
@@ -41,22 +44,47 @@ class DetailViewModel(private val repository: CerejaRepository) : ViewModel() {
         }
     }
 
-    fun load(endpoint: String, type: String, id: String, force: Boolean = false) {
+    fun load(
+        detailEndpoint: String,
+        relatedEndpoint: String,
+        recommendationsEndpoint: String,
+        type: String,
+        id: String,
+        force: Boolean = false
+    ) {
         val key = "$type:$id"
         if (!force && loadedKey == key && _state.value.detail != null) return
         loadedKey = key
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            runCatching { repository.detail(endpoint, type, id) }
+            _state.update { it.copy(loading = true, error = null, related = emptyList(), recommendations = emptyList()) }
+            runCatching { repository.detail(detailEndpoint, type, id) }
                 .onSuccess { detail ->
                     val firstSeason = detail.seasons.firstOrNull()?.number ?: 1
                     _state.update {
                         it.copy(detail = detail, loading = false, error = null, selectedSeason = firstSeason)
                     }
+                    loadExtras(relatedEndpoint, recommendationsEndpoint, detail, force)
                 }
                 .onFailure { error ->
                     _state.update { it.copy(loading = false, error = error.message ?: "Falha ao carregar") }
                 }
+        }
+    }
+
+    private fun loadExtras(
+        relatedEndpoint: String,
+        recommendationsEndpoint: String,
+        detail: MediaDetail,
+        force: Boolean
+    ) {
+        if (!force && _state.value.related.isNotEmpty()) return
+        viewModelScope.launch {
+            runCatching { repository.related(relatedEndpoint, detail.type, detail.id) }
+                .onSuccess { related -> _state.update { it.copy(related = related) } }
+        }
+        viewModelScope.launch {
+            runCatching { repository.recommendations(recommendationsEndpoint, detail.type, detail.id) }
+                .onSuccess { recommendations -> _state.update { it.copy(recommendations = recommendations) } }
         }
     }
 

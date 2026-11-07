@@ -5,10 +5,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.cerejaplay.app.data.model.AppConfig
+import com.cerejaplay.app.data.model.UserSettings
 import com.cerejaplay.app.data.repo.CerejaRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -23,6 +26,12 @@ class MainViewModel(private val repository: CerejaRepository) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
     val state: StateFlow<MainUiState> = _state.asStateFlow()
+
+    val settings: StateFlow<UserSettings> = repository.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
+
+    fun setTheme(value: String) = viewModelScope.launch { repository.updateTheme(value) }
+    fun setProfile(value: String) = viewModelScope.launch { repository.updateProfile(value) }
 
     init {
         bootstrap()

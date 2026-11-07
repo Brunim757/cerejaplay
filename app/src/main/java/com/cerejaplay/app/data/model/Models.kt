@@ -105,9 +105,17 @@ data class AssetsConfig(val logo: String? = null, val splash: String? = null, va
 data class EndpointsConfig(
     val config: String = "/api/app/config",
     val home: String = "/api/app/home",
+    val becauseYouWatched: String = "/api/app/because-you-watched",
+    val categories: String = "/api/app/categories",
     val catalog: CatalogEndpoints = CatalogEndpoints(),
+    val discover: String = "/api/app/discover",
+    val genres: String = "/api/app/genres",
     val search: String = "/api/app/search",
     val detail: String = "/api/app/detail",
+    val related: String = "/api/app/related",
+    val recommendations: String = "/api/app/recommendations",
+    val calendar: String = "/api/app/calendar",
+    val random: String = "/api/app/random",
     val watch: String = "/api/watch"
 )
 
@@ -129,6 +137,15 @@ data class HomeResponse(
     val success: Boolean = false,
     val data: HomePayload = HomePayload()
 )
+
+@Serializable
+data class BecauseYouWatchedResponse(
+    val success: Boolean = false,
+    val data: BecausePayload = BecausePayload()
+)
+
+@Serializable
+data class BecausePayload(val rows: List<HomeRow> = emptyList())
 
 @Serializable
 data class HomePayload(val rows: List<HomeRow> = emptyList())
@@ -229,7 +246,94 @@ data class MediaDetail(
     val episodes: List<Episode> = emptyList(),
     val totalEpisodes: Int = 0,
     val detailEndpoint: String? = null,
-    val watchEndpoint: String? = null
+    val watchEndpoint: String? = null,
+    val cast: List<CastMember> = emptyList(),
+    val trailer: Trailer? = null
+)
+
+@Serializable
+data class CastMember(
+    val id: Long? = null,
+    val name: String = "",
+    val character: String? = null,
+    val photo: String? = null
+)
+
+@Serializable
+data class Trailer(
+    val id: String? = null,
+    val site: String? = null,
+    val type: String? = null,
+    val name: String? = null,
+    val url: String? = null,
+    val embed: String? = null
+)
+
+@Serializable
+data class RelatedResponse(
+    val success: Boolean = false,
+    val count: Int = 0,
+    val data: List<RelatedItem> = emptyList()
+)
+
+@Serializable
+data class RelatedItem(
+    val relation: String? = null,
+    val item: MediaCard = MediaCard()
+)
+
+@Serializable
+data class RecommendationsResponse(
+    val success: Boolean = false,
+    val count: Int = 0,
+    val data: List<MediaCard> = emptyList()
+)
+
+@Serializable
+data class CalendarResponse(
+    val success: Boolean = false,
+    val count: Int = 0,
+    val data: List<CalendarEntry> = emptyList()
+)
+
+@Serializable
+data class CalendarEntry(
+    val episode: Int? = null,
+    val airingAt: Long? = null,
+    val airingAtISO: String? = null,
+    val anime: CalendarAnime? = null
+)
+
+@Serializable
+data class CalendarAnime(
+    val id: Int? = null,
+    val title: String = "",
+    val poster: String? = null,
+    val detailEndpoint: String? = null
+)
+
+@Serializable
+data class CategoriesResponse(
+    val success: Boolean = false,
+    val data: CategoriesPayload = CategoriesPayload()
+)
+
+@Serializable
+data class CategoriesPayload(
+    val kind: String = "",
+    val categories: List<String> = emptyList()
+)
+
+@Serializable
+data class GenresResponse(
+    val success: Boolean = false,
+    val data: GenresPayload = GenresPayload()
+)
+
+@Serializable
+data class GenresPayload(
+    val kind: String = "",
+    val genres: List<String> = emptyList()
 )
 
 @Serializable
@@ -266,11 +370,21 @@ data class WatchPayload(
     val episodeLabel: String? = null,
     val seasons: List<Season> = emptyList(),
     val episodeCount: Int? = null,
+    val durationSeconds: Int? = null,
+    val intro: SkipInterval? = null,
+    val outro: SkipInterval? = null,
     val languages: List<LanguageOption> = emptyList(),
     val providers: List<String> = emptyList(),
     val best: Stream? = null,
     val streams: List<Stream> = emptyList(),
     val elapsedMs: Long = 0
+)
+
+@Serializable
+data class SkipInterval(
+    val start: Double = 0.0,
+    val end: Double = 0.0,
+    val type: String? = null
 )
 
 @Serializable

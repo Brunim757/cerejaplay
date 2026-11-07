@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cerejaplay.app.data.model.PreferencesConfig
 import com.cerejaplay.app.data.model.UserSettings
+import com.cerejaplay.app.data.model.defaultProfiles
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +45,8 @@ fun SettingsSheet(
     onAudioSelected: (String) -> Unit,
     onQualitySelected: (String) -> Unit,
     onLanguageSelected: (String) -> Unit,
+    onThemeSelected: (String) -> Unit = {},
+    onProfileSelected: (String) -> Unit = {},
     onClearHistory: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
@@ -112,6 +115,34 @@ fun SettingsSheet(
                         selected = settings.language == option.code,
                         onClick = { onLanguageSelected(option.code) },
                         label = { Text(option.label) },
+                        colors = chipColors()
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            SettingGroup(title = "Tema") {
+                listOf(
+                    "dark" to "Escuro",
+                    "amoled" to "AMOLED",
+                    "light" to "Claro"
+                ).forEach { (id, label) ->
+                    FilterChip(
+                        selected = settings.theme == id,
+                        onClick = { onThemeSelected(id) },
+                        label = { Text(label) },
+                        colors = chipColors()
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            SettingGroup(title = "Perfil") {
+                defaultProfiles.forEach { option ->
+                    FilterChip(
+                        selected = settings.profile == option.id,
+                        onClick = { onProfileSelected(option.id) },
+                        label = { Text(option.name) },
                         colors = chipColors()
                     )
                 }

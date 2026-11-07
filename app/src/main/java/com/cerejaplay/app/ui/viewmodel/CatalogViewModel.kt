@@ -19,7 +19,10 @@ data class CatalogUiState(
     val totalPages: Int? = null,
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
+    val refreshing: Boolean = false,
     val endReached: Boolean = false,
+    val categories: List<String> = emptyList(),
+    val selectedCategory: String? = null,
     val error: String? = null
 )
 
@@ -29,6 +32,7 @@ class CatalogViewModel(private val repository: CerejaRepository) : ViewModel() {
     val state: StateFlow<CatalogUiState> = _state.asStateFlow()
 
     private var endpoint: String? = null
+    private var categoriesEndpoint: String? = null
     private var refreshJob: Job? = null
     private var loadMoreJob: Job? = null
 
@@ -37,9 +41,24 @@ class CatalogViewModel(private val repository: CerejaRepository) : ViewModel() {
     // várias vezes e os cards duplicados quebravam o LazyGrid.
     private var loadingMoreGuard = false
 
-    fun start(endpoint: String) {
+    fun start(endpoint: String, categoriesEndpoint: String? = null, kind: String? = null) {
+        this.categoriesEndpoint = categoriesEndpoint
+        if (kind != null && categoriesEndpoint != null) loadCategories(categoriesEndpoint, kind)
         if (this.endpoint == endpoint && _state.value.cards.isNotEmpty()) return
         this.endpoint = endpoint
+        refresh()
+    }
+
+    fun loadCategories(endpoint: String, kind: String) {
+        viewModelScope.launch {
+            runCatching { repository.categories(endpoint, kind) }
+                .onSuccess { categories -> _state.update { it.copy(categories = categories) } }
+        }
+    }
+
+    fun selectCategory(category: String?) {
+        if (_state.value.selectedCategory == category) return
+        _state.update { it.copy(selectedCategory = category) }
         refresh()
     }
 
@@ -48,18 +67,19 @@ class CatalogViewModel(private val repository: CerejaRepository) : ViewModel() {
         refreshJob?.cancel()
         loadMoreJob?.cancel()
         loadingMoreGuard = false
+        val category = _state.value.selectedCategory
         refreshJob = viewModelScope.launch {
             _state.update {
                 it.copy(
                     cards = emptyList(),
                     page = 0,
-                    loading = true,
+                    loading = !it.refreshing,
                     loadingMore = false,
                     endReached = false,
                     error = null
                 )
             }
-            runCatching { repository.catalog(current, 1) }
+            runCatching { repository.catalog(current, 1, category) }
                 .onSuccess { response ->
                     if (endpoint != current) return@onSuccess
                     val cards = uniqueCards(response.data)
@@ -72,6 +92,7 @@ class CatalogViewModel(private val repository: CerejaRepository) : ViewModel() {
                             totalPages = totalPages,
                             loading = false,
                             loadingMore = false,
+                            refreshing = false,
                             endReached = cards.isEmpty() ||
                                 response.data.isEmpty() ||
                                 (totalPages != null && page >= totalPages)
@@ -84,11 +105,18 @@ class CatalogViewModel(private val repository: CerejaRepository) : ViewModel() {
                         it.copy(
                             loading = false,
                             loadingMore = false,
+                            refreshing = false,
                             error = error.message ?: "Falha ao carregar"
                         )
                     }
                 }
         }
+    }
+
+    fun pullRefresh() {
+        if (endpoint == null) return
+        _state.update { it.copy(refreshing = true) }
+        refresh()
     }
 
     fun loadMore() {
@@ -105,7 +133,7 @@ class CatalogViewModel(private val repository: CerejaRepository) : ViewModel() {
         _state.update { it.copy(loadingMore = true, error = null) }
 
         loadMoreJob = viewModelScope.launch {
-            runCatching { repository.catalog(current, nextPage) }
+            runCatching { repository.catalog(current, nextPage, snapshot.selectedCategory) }
                 .onSuccess { response ->
                     if (endpoint != current) return@onSuccess
                     val known = _state.value.cards.mapTo(mutableSetOf()) { cardKey(it) }
