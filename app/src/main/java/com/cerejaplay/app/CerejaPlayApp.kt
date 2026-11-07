@@ -9,6 +9,7 @@ class CerejaPlayApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLogger.install(this)
         container = AppContainer(this)
     }
 }

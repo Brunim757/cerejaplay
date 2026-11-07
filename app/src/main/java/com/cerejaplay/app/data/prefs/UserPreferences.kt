@@ -3,6 +3,7 @@ package com.cerejaplay.app.data.prefs
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -30,6 +31,7 @@ class UserPreferences(private val context: Context, private val json: Json) {
         val LANGUAGE = stringPreferencesKey("language")
         val THEME = stringPreferencesKey("theme")
         val PROFILE = stringPreferencesKey("profile")
+        val ONBOARDING = booleanPreferencesKey("onboarding_seen")
         // Chaves legadas (perfil único) para migração transparente.
         val HISTORY = stringPreferencesKey("history_json")
         val FAVORITES = stringPreferencesKey("favorites_json")
@@ -65,6 +67,14 @@ class UserPreferences(private val context: Context, private val json: Json) {
     val recentSearches: Flow<List<String>> = context.cerejaDataStore.data.map { prefs ->
         val profile = profileOf(prefs)
         decodeSearches(prefs[searchesKey(profile)] ?: prefs[Keys.RECENT_SEARCHES])
+    }
+
+    val onboardingSeen: Flow<Boolean> = context.cerejaDataStore.data.map { prefs ->
+        prefs[Keys.ONBOARDING] ?: false
+    }
+
+    suspend fun setOnboardingSeen() {
+        context.cerejaDataStore.edit { it[Keys.ONBOARDING] = true }
     }
 
     suspend fun updateAudio(audio: String) {

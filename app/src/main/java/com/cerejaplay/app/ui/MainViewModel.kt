@@ -30,8 +30,12 @@ class MainViewModel(private val repository: CerejaRepository) : ViewModel() {
     val settings: StateFlow<UserSettings> = repository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
 
+    val onboardingSeen: StateFlow<Boolean?> = repository.onboardingSeen
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     fun setTheme(value: String) = viewModelScope.launch { repository.updateTheme(value) }
     fun setProfile(value: String) = viewModelScope.launch { repository.updateProfile(value) }
+    fun completeOnboarding() = viewModelScope.launch { repository.markOnboardingSeen() }
 
     init {
         bootstrap()

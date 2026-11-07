@@ -100,6 +100,8 @@ fun HomeScreen(
             preferences = config.preferences,
             settings = settings,
             legalNotice = config.legal.notice,
+            appVersion = config.version.current,
+            updateUrl = config.version.updateUrl.takeIf { it.isNotBlank() },
             onAudioSelected = viewModel::setAudio,
             onQualitySelected = viewModel::setQuality,
             onLanguageSelected = viewModel::setLanguage,

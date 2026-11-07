@@ -70,6 +70,7 @@ class CerejaRepository(
     val history: Flow<List<HistoryItem>> = preferences.history
     val favorites: Flow<List<MediaCard>> = preferences.favorites
     val recentSearches: Flow<List<String>> = preferences.recentSearches
+    val onboardingSeen: Flow<Boolean> = preferences.onboardingSeen
 
     suspend fun loadConfig(): AppConfig {
         val remote = service.config().data
@@ -238,6 +239,7 @@ class CerejaRepository(
     suspend fun updateLanguage(value: String) = preferences.updateLanguage(value)
     suspend fun updateTheme(value: String) = preferences.updateTheme(value)
     suspend fun updateProfile(value: String) = preferences.updateProfile(value)
+    suspend fun markOnboardingSeen() = preferences.setOnboardingSeen()
     suspend fun clearHistory() = preferences.clearHistory()
 
     private suspend fun <T> call(block: suspend () -> T): T {

@@ -1,5 +1,6 @@
 package com.cerejaplay.app.ui
 
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -36,13 +37,16 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,6 +56,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +72,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.cerejaplay.app.AppContainer
+import com.cerejaplay.app.DeepLinkBus
 import com.cerejaplay.app.R
 import com.cerejaplay.app.data.model.AppConfig
 import com.cerejaplay.app.data.model.TabConfig
@@ -78,6 +84,7 @@ import com.cerejaplay.app.ui.screens.CatalogScreen
 import com.cerejaplay.app.ui.screens.DetailScreen
 import com.cerejaplay.app.ui.screens.HomeScreen
 import com.cerejaplay.app.ui.screens.MyListScreen
+import com.cerejaplay.app.ui.screens.OnboardingScreen
 import com.cerejaplay.app.ui.screens.PlayerScreen
 import com.cerejaplay.app.ui.screens.SearchScreen
 import com.cerejaplay.app.ui.theme.CerejaPlayTheme
@@ -87,23 +94,56 @@ fun CerejaPlayRoot(container: AppContainer) {
     val viewModel: MainViewModel = viewModel(factory = MainViewModel.factory(container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val onboardingSeen by viewModel.onboardingSeen.collectAsStateWithLifecycle()
 
     CerejaPlayTheme(config = state.config?.theme ?: ThemeConfig(), appearance = settings.theme) {
         val config = state.config
-        if (config == null) {
-            BootScreen()
-        } else {
-            CompositionLocalProvider(LocalAppConfig provides config) {
-                AppNavigation(
-                    config = config,
-                    repository = container.repository,
-                    settings = settings,
-                    onThemeSelected = viewModel::setTheme,
-                    onProfileSelected = viewModel::setProfile
-                )
+        when {
+            config == null || onboardingSeen == null -> BootScreen()
+            onboardingSeen == false -> OnboardingScreen(onDone = viewModel::completeOnboarding)
+            else -> {
+                CompositionLocalProvider(LocalAppConfig provides config) {
+                    AppNavigation(
+                        config = config,
+                        repository = container.repository,
+                        settings = settings,
+                        onThemeSelected = viewModel::setTheme,
+                        onProfileSelected = viewModel::setProfile
+                    )
+                }
+                ForceUpdateDialog(config)
             }
         }
     }
+}
+
+@Composable
+private fun ForceUpdateDialog(config: AppConfig) {
+    if (!config.version.forceUpdate || config.version.updateUrl.isBlank()) return
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text("Atualização necessária") },
+        text = {
+            Text(
+                "Uma nova versão do CerejaPlay está disponível. " +
+                    "Atualize para continuar usando o app."
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(config.version.updateUrl))
+                        )
+                    }
+                }
+            ) {
+                Text("Atualizar")
+            }
+        }
+    )
 }
 
 @Composable
@@ -197,6 +237,12 @@ private fun AppNavigation(
     onProfileSelected: (String) -> Unit
 ) {
     val navController = rememberNavController()
+    val pendingDeepLink by DeepLinkBus.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingDeepLink) {
+        val route = pendingDeepLink ?: return@LaunchedEffect
+        runCatching { navController.navigate(route) }
+        DeepLinkBus.consume()
+    }
     val tabs = remember(config.tabs) {
         config.tabs.filter { it.id.isNotBlank() }.ifEmpty { DefaultConfig.value.tabs }
     }

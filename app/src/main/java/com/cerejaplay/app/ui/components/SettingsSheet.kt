@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -29,6 +30,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +44,8 @@ fun SettingsSheet(
     preferences: PreferencesConfig,
     settings: UserSettings,
     legalNotice: String,
+    appVersion: String = "",
+    updateUrl: String? = null,
     onAudioSelected: (String) -> Unit,
     onQualitySelected: (String) -> Unit,
     onLanguageSelected: (String) -> Unit,
@@ -50,6 +54,7 @@ fun SettingsSheet(
     onClearHistory: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface
@@ -193,6 +198,55 @@ fun SettingsSheet(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f)
                 )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "CerejaPlay",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (appVersion.isNotBlank()) {
+                        Text(
+                            text = "Versão $appVersion",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (!updateUrl.isNullOrBlank()) {
+                    TextButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(updateUrl)
+                                    )
+                                )
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SystemUpdate,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.padding(horizontal = 4.dp))
+                        Text(
+                            text = "Atualizar",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
             }
         }
     }
