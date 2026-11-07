@@ -22,11 +22,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -112,6 +114,7 @@ import com.cerejaplay.app.ui.LocalAppConfig
 import com.cerejaplay.app.ui.components.ErrorState
 import com.cerejaplay.app.ui.components.LoadingState
 import com.cerejaplay.app.ui.viewmodel.PlayerViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -495,7 +498,7 @@ private fun DirectPlayer(
     nextCountdown: Int,
     onNextEpisode: () -> Unit,
     onProgress: (Long, Long) -> Unit,
-    onError: (String) -> Unit,
+    onError: (Stream, String) -> Unit,
     onVideoSize: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -561,6 +564,11 @@ private fun DirectPlayer(
     }
     var resolving by remember(stream) { mutableStateOf(stream.type == "resolver") }
     var resolveError by remember(stream) { mutableStateOf<String?>(null) }
+    // Fonte que esta de fato no player agora. Usada para saber de quem e um
+    // erro de reproducao: um erro atrasado da fonte antiga nao pode derrubar
+    // a fonte nova que o usuario acabou de escolher.
+    var activeMediaStream by remember { mutableStateOf<Stream?>(null) }
+    var hasAppliedMedia by remember { mutableStateOf(false) }
 
     LaunchedEffect(stream) {
         if (stream.type != "resolver") {
@@ -570,17 +578,22 @@ private fun DirectPlayer(
         resolving = true
         resolveError = null
         resolved = null
-        runCatching { StreamResolver.resolve(stream) }
-            .onSuccess { resolved = it }
-            .onFailure {
-                val message = it.message ?: "Não foi possível preparar esta fonte."
-                resolveError = message
-                onError(message)
-            }
-        resolving = false
+        try {
+            resolved = StreamResolver.resolve(stream)
+        } catch (cancelled: CancellationException) {
+            // Trocar de fonte cancela este efeito: nao e falha de reproducao.
+            throw cancelled
+        } catch (error: Exception) {
+            val message = error.message ?: "Não foi possível preparar esta fonte."
+            resolveError = message
+            onError(stream, message)
+        } finally {
+            resolving = false
+        }
     }
 
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
+    var controllerError by remember { mutableStateOf<String?>(null) }
 
     // Conecta ao serviço de reprodução. O player vive no serviço para que os
     // controles de tela de bloqueio/notificação do sistema funcionem.
@@ -588,7 +601,13 @@ private fun DirectPlayer(
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val future = MediaController.Builder(context, token).buildAsync()
         future.addListener(
-            { runCatching { mediaController = future.get() } },
+            {
+                runCatching { future.get() }
+                    .onSuccess { mediaController = it }
+                    .onFailure {
+                        controllerError = it.message ?: "Não foi possível iniciar o player."
+                    }
+            },
             ContextCompat.getMainExecutor(context)
         )
         onDispose {
@@ -603,7 +622,20 @@ private fun DirectPlayer(
     LaunchedEffect(media?.url, media?.headers, stream.type, startPositionMs, exoPlayer) {
         val target = media ?: return@LaunchedEffect
         val player = exoPlayer ?: return@LaunchedEffect
+        // Ao trocar de fonte dentro da mesma tela, continua de onde o usuario
+        // ja estava. Na primeira midia (episodio novo), usa a posicao salva.
+        val resumeAt = runCatching {
+            if (hasAppliedMedia && player.currentMediaItem != null && player.currentPosition > 0L) {
+                player.currentPosition
+            } else {
+                startPositionMs
+            }
+        }.getOrDefault(startPositionMs)
         runCatching {
+            // Cancela downloads/erros pendentes da fonte anterior antes de
+            // montar a nova, evitando que um erro atrasado troque a fonte boa.
+            activeMediaStream = stream
+            player.stop()
             PlaybackHeaders.headers = target.headers
             val itemBuilder = MediaItem.Builder().setUri(Uri.parse(target.url))
             val subtitleConfigs = stream.subtitles.mapNotNull { subtitle ->
@@ -631,14 +663,20 @@ private fun DirectPlayer(
                 .apply { mediaArtwork?.let { setArtworkUri(Uri.parse(it)) } }
                 .build()
             itemBuilder.setMediaMetadata(metadata)
-            player.setMediaItem(itemBuilder.build(), startPositionMs)
+            player.setMediaItem(itemBuilder.build(), resumeAt)
             player.setPlaybackSpeed(startSpeed)
             player.prepare()
             player.playWhenReady = autoplay
+            hasAppliedMedia = true
         }
     }
 
     val currentSubtitleIndex = rememberUpdatedState(subtitleIndex)
+    val latestOnError by rememberUpdatedState(onError)
+    val latestOnProgress by rememberUpdatedState(onProgress)
+    val latestOnVideoSize by rememberUpdatedState(onVideoSize)
+    val latestHasNextEpisode by rememberUpdatedState(hasNextEpisode)
+    val latestNextDismissed by rememberUpdatedState(nextDismissed)
 
     LaunchedEffect(startSpeed, exoPlayer) {
         exoPlayer?.setPlaybackSpeed(startSpeed)
@@ -712,7 +750,7 @@ private fun DirectPlayer(
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
-                onVideoSize(videoSize.width, videoSize.height)
+                latestOnVideoSize.value(videoSize.width, videoSize.height)
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -729,13 +767,17 @@ private fun DirectPlayer(
                 }
                 if (playbackState == Player.STATE_ENDED) {
                     val total = player.duration.coerceAtLeast(0L)
-                    if (total > 0L) onProgress(total, total)
-                    if (hasNextEpisode && !nextDismissed) showNext = true
+                    if (total > 0L) latestOnProgress.value(total, total)
+                    if (latestHasNextEpisode.value && !latestNextDismissed.value) showNext = true
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                onError(error.message ?: "Falha ao reproduzir esta fonte.")
+                val source = activeMediaStream ?: return
+                latestOnError.value(
+                    source,
+                    error.message ?: "Falha ao reproduzir esta fonte."
+                )
             }
         }
         player.addListener(listener)
@@ -743,7 +785,7 @@ private fun DirectPlayer(
             player.removeListener(listener)
             val total = runCatching { player.duration }.getOrDefault(0L)
             val current = runCatching { player.currentPosition }.getOrDefault(0L)
-            if (total > 0L && current > 0L) onProgress(current, total)
+            if (total > 0L && current > 0L) latestOnProgress.value(current, total)
             // O player vive no serviço; ao sair da tela paramos a reprodução e
             // liberamos a mídia, deixando o serviço ocioso.
             runCatching { player.stop() }
@@ -804,7 +846,16 @@ private fun DirectPlayer(
 
         exoPlayer == null -> {
             Box(modifier = modifier, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White)
+                if (controllerError != null) {
+                    Text(
+                        text = controllerError ?: "Não foi possível iniciar o player. Volte e tente novamente.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                } else {
+                    CircularProgressIndicator(color = Color.White)
+                }
             }
         }
 
@@ -1475,6 +1526,7 @@ private fun SourcesSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = 460.dp)
                 .navigationBarsPadding()
                 .padding(horizontal = 18.dp)
                 .padding(bottom = 18.dp)
@@ -1491,50 +1543,63 @@ private fun SourcesSheet(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            streams.forEach { stream ->
-                val active = stream.url == selected?.url &&
-                    stream.embed == selected?.embed &&
-                    stream.type == selected?.type
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelect(stream) }
-                        .background(
-                            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            else Color.Transparent
-                        )
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stream.label ?: stream.server ?: stream.provider,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = sourceSubtitle(stream),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    if (active) {
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+            Text(
+                text = "${streams.size} fonte(s) • toque para trocar",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(count = streams.size) { index ->
+                    val stream = streams[index]
+                    val active = stream.url == selected?.url &&
+                        stream.embed == selected?.embed &&
+                        stream.type == selected?.type
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onSelect(stream) }
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else Color.Transparent
+                            )
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stream.label ?: stream.server ?: stream.provider,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = sourceSubtitle(stream),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (active) {
+                            Icon(
+                                Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
             }
             Text(
-                text = "Se uma fonte falhar, o app tenta a próxima automaticamente.",
+                text = "Se uma fonte falhar, o app tenta a próxima automaticamente. Role para ver todas.",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 10.dp)

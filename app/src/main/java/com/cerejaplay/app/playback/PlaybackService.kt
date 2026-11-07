@@ -47,7 +47,9 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20_000, 90_000, 1_500, 3_000)
+            // Mais folga contra engasgos em HLS de provedores lentos, sem
+            // atrasar o inicio da reproducao por muito tempo.
+            .setBufferDurationsMs(30_000, 120_000, 2_500, 5_000)
             .build()
         val player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)

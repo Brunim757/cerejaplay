@@ -1,6 +1,5 @@
 package com.cerejaplay.app.ui
 
-import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -48,7 +47,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +90,8 @@ import com.cerejaplay.app.ui.screens.OnboardingScreen
 import com.cerejaplay.app.ui.screens.PlayerScreen
 import com.cerejaplay.app.ui.screens.SearchScreen
 import com.cerejaplay.app.ui.theme.CerejaPlayTheme
+import com.cerejaplay.app.update.ApkUpdater
+import kotlinx.coroutines.launch
 
 @Composable
 fun CerejaPlayRoot(container: AppContainer) {
@@ -121,6 +125,8 @@ fun CerejaPlayRoot(container: AppContainer) {
 private fun ForceUpdateDialog(config: AppConfig) {
     if (!config.version.forceUpdate || config.version.updateUrl.isBlank()) return
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updating by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { },
         title = { Text("Atualização necessária") },
@@ -132,15 +138,27 @@ private fun ForceUpdateDialog(config: AppConfig) {
         },
         confirmButton = {
             TextButton(
+                enabled = !updating,
                 onClick = {
-                    runCatching {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(config.version.updateUrl))
-                        )
+                    updating = true
+                    scope.launch {
+                        val outcome = runCatching {
+                            val apk = ApkUpdater.download(context, config.version.updateUrl)
+                            ApkUpdater.install(context, apk)
+                        }
+                        if (outcome.isFailure) {
+                            android.widget.Toast.makeText(
+                                context,
+                                outcome.exceptionOrNull()?.message
+                                    ?: "Não foi possível baixar a atualização.",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        updating = false
                     }
                 }
             ) {
-                Text("Atualizar")
+                Text(if (updating) "Baixando..." else "Atualizar")
             }
         }
     )

@@ -8,6 +8,8 @@ import com.cerejaplay.app.data.model.Stream
 import com.cerejaplay.app.data.model.UserSettings
 import com.cerejaplay.app.data.model.WatchPayload
 import com.cerejaplay.app.data.repo.CerejaRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +48,11 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
     )
 
     private var request: Request? = null
+    private var loadJob: Job? = null
+    // Fontes que ja falharam nesta sessao: nunca voltamos para elas, o que
+    // evitava o vai-e-vem entre a primeira e a segunda fonte.
+    private val failedStreams = mutableSetOf<String>()
+    private var autoSwitchCount = 0
 
     fun load(
         endpoint: String,
@@ -66,20 +73,37 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
     }
 
     fun selectStream(stream: Stream) {
+        failedStreams.remove(streamKey(stream))
         _state.update { it.copy(selected = stream, error = null, switching = false) }
     }
 
-    fun onPlaybackError(message: String) {
-        val payload = _state.value.watch ?: return
-        val current = _state.value.selected
-        val next = payload.streams.firstOrNull { candidate ->
-            candidate.isPlayable && !sameStream(candidate, current)
+    fun onPlaybackError(stream: Stream, message: String) {
+        val current = _state.value.selected ?: return
+        // Erro de uma fonte antiga que ainda estava carregando: ignora.
+        if (!sameStream(stream, current)) return
+
+        failedStreams.add(streamKey(current))
+        autoSwitchCount += 1
+        val payload = _state.value.watch
+        val next = payload?.streams?.firstOrNull { candidate ->
+            candidate.isPlayable && !failedStreams.contains(streamKey(candidate))
         }
-        if (next != null) {
-            _state.update { it.copy(selected = next, error = message) }
+
+        if (next != null && autoSwitchCount <= MAX_AUTO_SWITCH) {
+            val label = next.label ?: next.server ?: next.provider
+            _state.update {
+                it.copy(
+                    selected = next,
+                    error = "Fonte anterior falhou. Tentando $label…",
+                    switching = true
+                )
+            }
         } else {
             _state.update {
-                it.copy(error = "Não foi possível reproduzir esta fonte. Tente novamente mais tarde.")
+                it.copy(
+                    error = "Nenhuma fonte conseguiu reproduzir. Escolha outra em Fontes.",
+                    switching = false
+                )
             }
         }
     }
@@ -125,13 +149,21 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
             first.resolver == second.resolver
     }
 
+    private fun streamKey(stream: Stream): String =
+        "${stream.type}|${stream.url ?: stream.embed ?: stream.resolver}|${stream.audio ?: stream.language ?: ""}"
+
     private fun execute() {
         val current = request ?: return
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            val userSettings = repository.settings.first()
-            runCatching {
-                repository.watch(
+        // Uma troca de audio/qualidade nao pode deixar duas buscas correndo:
+        // a resposta antiga sobrescrevia a escolha mais recente.
+        loadJob?.cancel()
+        failedStreams.clear()
+        autoSwitchCount = 0
+        _state.update { it.copy(loading = true, error = null, switching = false) }
+        loadJob = viewModelScope.launch {
+            try {
+                val userSettings = repository.settings.first()
+                val response = repository.watch(
                     endpoint = current.endpoint,
                     type = current.type,
                     id = current.id,
@@ -139,7 +171,6 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                     episode = current.episode,
                     settings = userSettings
                 )
-            }.onSuccess { response ->
                 val payload = response.data
                 val playable = payload?.streams?.filter { it.isPlayable }.orEmpty()
                 val best = payload?.best?.takeIf { it.isPlayable } ?: playable.firstOrNull()
@@ -152,7 +183,7 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                             error = "Nenhuma fonte compatível com o player nativo para este título."
                         )
                     }
-                    return@onSuccess
+                    return@launch
                 }
                 val resumeAt = repository.resumePosition(
                     type = current.type,
@@ -179,7 +210,9 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
                     season = current.season?.takeIf { it > 0 },
                     episode = current.episode?.takeIf { it > 0 }
                 )
-            }.onFailure { error ->
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 _state.update {
                     it.copy(loading = false, error = error.message ?: "Falha ao localizar a fonte de vídeo.")
                 }
@@ -188,6 +221,7 @@ class PlayerViewModel(private val repository: CerejaRepository) : ViewModel() {
     }
 
     companion object {
+        private const val MAX_AUTO_SWITCH = 8
         fun factory(repository: CerejaRepository) = viewModelFactory {
             initializer { PlayerViewModel(repository) }
         }

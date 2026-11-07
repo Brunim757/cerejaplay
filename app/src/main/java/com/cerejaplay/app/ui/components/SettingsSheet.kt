@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -28,6 +29,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.cerejaplay.app.data.model.PreferencesConfig
 import com.cerejaplay.app.data.model.UserSettings
 import com.cerejaplay.app.data.model.defaultProfiles
+import com.cerejaplay.app.update.ApkUpdater
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +64,9 @@ fun SettingsSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updating by remember { mutableStateOf(false) }
+    var updateProgress by remember { mutableFloatStateOf(0f) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface
@@ -221,30 +233,58 @@ fun SettingsSheet(
                     }
                 }
                 if (!updateUrl.isNullOrBlank()) {
-                    TextButton(
-                        onClick = {
-                            runCatching {
-                                context.startActivity(
-                                    android.content.Intent(
-                                        android.content.Intent.ACTION_VIEW,
-                                        android.net.Uri.parse(updateUrl)
-                                    )
-                                )
-                            }
+                    val downloadUrl = updateUrl
+                    if (updating) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                text = "${(updateProgress * 100).toInt()}%",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge
+                            )
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SystemUpdate,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.padding(horizontal = 4.dp))
-                        Text(
-                            text = "Atualizar",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
+                    } else {
+                        TextButton(
+                            onClick = {
+                                updating = true
+                                updateProgress = 0f
+                                scope.launch {
+                                    val outcome = runCatching {
+                                        val apk = ApkUpdater.download(context, downloadUrl) { fraction ->
+                                            updateProgress = fraction
+                                        }
+                                        ApkUpdater.install(context, apk)
+                                    }
+                                    if (outcome.isFailure) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            outcome.exceptionOrNull()?.message
+                                                ?: "Não foi possível baixar a atualização.",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    updating = false
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SystemUpdate,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.padding(horizontal = 4.dp))
+                            Text(
+                                text = "Atualizar",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
                     }
                 }
             }

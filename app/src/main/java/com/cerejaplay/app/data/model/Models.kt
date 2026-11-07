@@ -1,6 +1,16 @@
 package com.cerejaplay.app.data.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @Serializable
 data class ConfigResponse(
@@ -409,6 +419,7 @@ data class Stream(
     val language: String? = null,
     val audio: String? = null,
     val subtitles: List<Subtitle> = emptyList(),
+    @Serializable(with = QualitiesSerializer::class)
     val qualities: List<QualityVariant> = emptyList(),
     val headers: Map<String, String> = emptyMap(),
     val error: String? = null,
@@ -433,6 +444,39 @@ data class QualityVariant(
     val bandwidth: Long? = null,
     val url: String? = null
 )
+
+/**
+ * Aceita `qualities` das duas formas que a API ja devolveu:
+ *  - ["480p", "720p"]                          (rotulos)
+ *  - [{"quality":"480p","url":"..."}]          (objetos)
+ * Assim um provedor que mude o formato nunca mais derruba o player.
+ */
+object QualitiesSerializer : KSerializer<List<QualityVariant>> {
+
+    override val descriptor: SerialDescriptor =
+        ListSerializer(QualityVariant.serializer()).descriptor
+
+    override fun deserialize(decoder: Decoder): List<QualityVariant> {
+        val input = decoder as? JsonDecoder ?: return emptyList()
+        val array = input.decodeJsonElement() as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            when (element) {
+                is JsonPrimitive -> {
+                    val text = element.contentOrNull?.trim()
+                    if (text.isNullOrEmpty()) null else QualityVariant(quality = text)
+                }
+                is JsonObject -> runCatching {
+                    input.json.decodeFromJsonElement(QualityVariant.serializer(), element)
+                }.getOrNull()
+                else -> null
+            }
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: List<QualityVariant>) {
+        encoder.encodeSerializableValue(ListSerializer(QualityVariant.serializer()), value)
+    }
+}
 
 @Serializable
 data class ApiErrorBody(
