@@ -1,12 +1,16 @@
 package com.cerejaplay.app.ui.screens
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import android.net.Uri
+import android.util.Rational
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,15 +30,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,6 +66,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +90,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -87,6 +101,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.cerejaplay.app.data.model.AudioChoice
 import com.cerejaplay.app.data.model.Stream
+import com.cerejaplay.app.data.model.Subtitle
 import com.cerejaplay.app.data.repo.CerejaRepository
 import com.cerejaplay.app.data.resolve.ResolvedStream
 import com.cerejaplay.app.data.resolve.StreamResolver
@@ -95,6 +110,11 @@ import com.cerejaplay.app.ui.components.ErrorState
 import com.cerejaplay.app.ui.components.LoadingState
 import com.cerejaplay.app.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private const val NEXT_EPISODE_WINDOW_MS = 8_000L
+private const val NEXT_EPISODE_COUNTDOWN = 8
 
 @Composable
 fun PlayerScreen(
@@ -106,7 +126,8 @@ fun PlayerScreen(
     title: String,
     poster: String?,
     backdrop: String?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNextEpisode: ((Int) -> Unit)? = null
 ) {
     val config = LocalAppConfig.current
     val viewModel: PlayerViewModel = viewModel(factory = PlayerViewModel.factory(repository))
@@ -116,9 +137,16 @@ fun PlayerScreen(
     var showSources by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var showAudio by remember { mutableStateOf(false) }
+    var showSubtitles by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var speed by remember { mutableFloatStateOf(1f) }
+    var locked by remember { mutableStateOf(false) }
+    // null = legendas desativadas; índice dentro de stream.subtitles (apenas os
+    // que possuem URL válida).
+    var subtitleIndex by remember { mutableStateOf<Int?>(null) }
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(type, id, season, episode, config.endpoints.watch) {
         viewModel.load(
@@ -131,6 +159,15 @@ fun PlayerScreen(
             poster = poster,
             backdrop = backdrop
         )
+    }
+
+    // Ao trocar de fonte/stream, reinicia a legenda escolhida.
+    LaunchedEffect(state.selected?.url, state.selected?.embed, state.selected?.type) {
+        subtitleIndex = null
+    }
+
+    val subtitleOptions = remember(state.selected) {
+        state.selected?.subtitles?.filter { !it.url.isNullOrBlank() }.orEmpty()
     }
 
     if (showSources && state.watch != null) {
@@ -172,6 +209,18 @@ fun PlayerScreen(
         )
     }
 
+    if (showSubtitles) {
+        SubtitleSheet(
+            subtitles = subtitleOptions,
+            selected = subtitleIndex,
+            onSelect = {
+                subtitleIndex = it
+                showSubtitles = false
+            },
+            onDismiss = { showSubtitles = false }
+        )
+    }
+
     BackHandler(onBack = onBack)
 
     val activity = context as? Activity
@@ -193,6 +242,30 @@ fun PlayerScreen(
             if (originalOrientation != null) activity?.requestedOrientation = originalOrientation
         }
     }
+
+    val enterPip: () -> Unit = {
+        val target = context as? Activity
+        if (target != null) {
+            runCatching {
+                val params = PictureInPictureParams.Builder()
+                    .apply {
+                        if (videoWidth > 0 && videoHeight > 0) {
+                            setAspectRatio(Rational(videoWidth, videoHeight))
+                        }
+                    }
+                    .build()
+                target.enterPictureInPictureMode(params)
+            }
+        }
+    }
+
+    val watchEpisode = state.watch?.episode ?: episode.takeIf { it > 0 }
+    val episodeCount = state.watch?.episodeCount
+    val canGoNext = onNextEpisode != null &&
+        watchEpisode != null &&
+        episodeCount != null &&
+        watchEpisode > 0 &&
+        watchEpisode < episodeCount
 
     Box(
         modifier = Modifier
@@ -227,8 +300,20 @@ fun PlayerScreen(
                     controlsVisible = showControls,
                     onControlsVisibleChange = { showControls = it },
                     resize = resizeMode,
+                    locked = locked,
+                    onLockedChange = { locked = it },
+                    subtitleIndex = subtitleIndex,
+                    hasNextEpisode = canGoNext,
+                    nextCountdown = NEXT_EPISODE_COUNTDOWN,
+                    onNextEpisode = {
+                        watchEpisode?.let { next -> onNextEpisode?.invoke(next + 1) }
+                    },
                     onProgress = viewModel::saveProgress,
                     onError = viewModel::onPlaybackError,
+                    onVideoSize = { width, height ->
+                        videoWidth = width
+                        videoHeight = height
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -237,16 +322,24 @@ fun PlayerScreen(
         // A barra superior só aparece junto com os controles, para não ficar
         // cobrindo o vídeo o tempo todo. Em estados de erro/carregamento ela
         // permanece para dar acesso ao botão Voltar.
-        if (state.selected == null || showControls) {
+        if ((state.selected == null || showControls) && !locked) {
             PlayerTopBar(
                 title = state.watch?.title ?: title,
                 subtitle = episodeLabel(type, state.watch?.season, state.watch?.episode, state.watch?.episodeLabel),
                 speedLabel = formatSpeed(speed),
                 resizeLabel = resizeModeLabel(resizeMode),
+                hasSubtitles = subtitleOptions.isNotEmpty(),
+                subtitlesOff = subtitleIndex == null,
                 onBack = onBack,
                 onSpeed = { showSpeed = true },
                 onAudio = { showAudio = true },
+                onSubtitles = { showSubtitles = true },
                 onResize = { resizeMode = nextResizeMode(resizeMode) },
+                onPip = enterPip,
+                onLock = {
+                    locked = true
+                    showControls = false
+                },
                 onSources = { showSources = true }
             )
         }
@@ -287,10 +380,15 @@ private fun PlayerTopBar(
     subtitle: String?,
     speedLabel: String,
     resizeLabel: String,
+    hasSubtitles: Boolean,
+    subtitlesOff: Boolean,
     onBack: () -> Unit,
     onSpeed: () -> Unit,
     onAudio: () -> Unit,
+    onSubtitles: () -> Unit,
     onResize: () -> Unit,
+    onPip: () -> Unit,
+    onLock: () -> Unit,
     onSources: () -> Unit
 ) {
     Box(
@@ -329,6 +427,14 @@ private fun PlayerTopBar(
                     )
                 }
             }
+            if (hasSubtitles) {
+                PlayerPill(
+                    label = if (subtitlesOff) "Legenda" else "Legenda on",
+                    icon = Icons.Rounded.Subtitles,
+                    description = "Escolher legenda",
+                    onClick = onSubtitles
+                )
+            }
             PlayerPill(
                 label = resizeLabel,
                 icon = Icons.Rounded.AspectRatio,
@@ -347,12 +453,20 @@ private fun PlayerTopBar(
                 description = "Escolher áudio",
                 onClick = onAudio
             )
+            IconButton(onClick = onPip) {
+                Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "Picture-in-picture", tint = Color.White)
+            }
+            IconButton(onClick = onLock) {
+                Icon(Icons.Rounded.Lock, contentDescription = "Travar controles", tint = Color.White)
+            }
             IconButton(onClick = onSources) {
                 Icon(Icons.Rounded.FormatListBulleted, contentDescription = "Fontes", tint = Color.White)
             }
         }
     }
 }
+
+private data class DragHint(val icon: ImageVector, val label: String)
 
 @Composable
 private fun DirectPlayer(
@@ -363,19 +477,64 @@ private fun DirectPlayer(
     controlsVisible: Boolean,
     onControlsVisibleChange: (Boolean) -> Unit,
     resize: Int,
+    locked: Boolean,
+    onLockedChange: (Boolean) -> Unit,
+    subtitleIndex: Int?,
+    hasNextEpisode: Boolean,
+    nextCountdown: Int,
+    onNextEpisode: () -> Unit,
     onProgress: (Long, Long) -> Unit,
     onError: (String) -> Unit,
+    onVideoSize: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
+    val audioManager = remember(context) {
+        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
+    val maxVolume = remember(audioManager) {
+        (audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+    }
+    val originalBrightness = remember(activity) {
+        activity?.window?.attributes?.screenBrightness ?: -1f
+    }
+
     var isPlaying by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(startPositionMs) }
     var duration by remember { mutableLongStateOf(0L) }
     var buffering by remember { mutableStateOf(true) }
     var ended by remember { mutableStateOf(false) }
+    var volume by remember {
+        mutableFloatStateOf(
+            audioManager
+                ?.let { it.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume }
+                ?: 0.5f
+        )
+    }
+    var brightness by remember {
+        mutableFloatStateOf(if (originalBrightness in 0f..1f) originalBrightness else 0.5f)
+    }
+    var dragHint by remember { mutableStateOf<DragHint?>(null) }
+    var showNext by remember { mutableStateOf(false) }
+    var nextDismissed by remember { mutableStateOf(false) }
+    var countdown by remember { mutableIntStateOf(nextCountdown) }
 
     val showControls = controlsVisible
     fun setShowControls(value: Boolean) = onControlsVisibleChange(value)
+
+    fun applyVolume(value: Float) {
+        val manager = audioManager ?: return
+        val level = (value * maxVolume).roundToInt().coerceIn(0, maxVolume)
+        runCatching { manager.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0) }
+    }
+
+    fun applyBrightness(value: Float) {
+        val window = activity?.window ?: return
+        runCatching {
+            window.attributes = window.attributes.apply { screenBrightness = value }
+        }
+    }
 
     var resolved by remember(stream) {
         mutableStateOf(
@@ -466,8 +625,14 @@ private fun DirectPlayer(
         }.getOrNull()
     }
 
+    val currentSubtitleIndex = rememberUpdatedState(subtitleIndex)
+
     LaunchedEffect(startSpeed, exoPlayer) {
         exoPlayer?.setPlaybackSpeed(startSpeed)
+    }
+
+    LaunchedEffect(subtitleIndex, exoPlayer) {
+        exoPlayer?.let { applySubtitleSelection(it, subtitleIndex) }
     }
 
     LaunchedEffect(exoPlayer) {
@@ -484,15 +649,45 @@ private fun DirectPlayer(
                     onProgress(position, duration)
                     lastSaved = position
                 }
+                // Dispara o cartão de "próximo episódio" perto do fim.
+                if (hasNextEpisode && !nextDismissed && duration > 0L) {
+                    val remaining = duration - position
+                    if (remaining in 1..NEXT_EPISODE_WINDOW_MS) showNext = true
+                }
             }
             delay(500)
         }
     }
 
-    LaunchedEffect(showControls, isPlaying, buffering) {
-        if (showControls && isPlaying && !buffering) {
+    LaunchedEffect(showControls, isPlaying, buffering, locked) {
+        if (showControls && isPlaying && !buffering && !locked) {
             delay(3500)
             setShowControls(false)
+        }
+    }
+
+    LaunchedEffect(locked) {
+        if (locked) setShowControls(false)
+    }
+
+    LaunchedEffect(showNext) {
+        if (!showNext) return@LaunchedEffect
+        countdown = nextCountdown
+        while (countdown > 0) {
+            delay(1000)
+            countdown -= 1
+        }
+        onNextEpisode()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val window = activity?.window
+            if (window != null && originalBrightness != -1f) {
+                runCatching {
+                    window.attributes = window.attributes.apply { screenBrightness = originalBrightness }
+                }
+            }
         }
     }
 
@@ -503,16 +698,26 @@ private fun DirectPlayer(
                 isPlaying = playing
             }
 
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                onVideoSize(videoSize.width, videoSize.height)
+            }
+
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                applySubtitleSelection(player, currentSubtitleIndex.value)
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 buffering = playbackState == Player.STATE_BUFFERING
                 ended = playbackState == Player.STATE_ENDED
                 if (playbackState == Player.STATE_READY) {
                     buffering = false
                     player.setPlaybackSpeed(startSpeed)
+                    applySubtitleSelection(player, currentSubtitleIndex.value)
                 }
                 if (playbackState == Player.STATE_ENDED) {
                     val total = player.duration.coerceAtLeast(0L)
                     if (total > 0L) onProgress(total, total)
+                    if (hasNextEpisode && !nextDismissed) showNext = true
                 }
             }
 
@@ -569,7 +774,8 @@ private fun DirectPlayer(
         else -> {
             Box(
                 modifier = modifier
-                    .pointerInput(exoPlayer, duration) {
+                    .pointerInput(exoPlayer, duration, locked) {
+                        if (locked) return@pointerInput
                         detectTapGestures(
                             onTap = { setShowControls(!showControls) },
                             onDoubleTap = { offset ->
@@ -580,6 +786,82 @@ private fun DirectPlayer(
                                 exoPlayer.seekTo(target)
                                 position = target
                                 setShowControls(true)
+                            }
+                        )
+                    }
+                    .pointerInput(exoPlayer, duration, locked) {
+                        if (locked) return@pointerInput
+                        var mode = 0 // 0 = indefinido, 1 = seek, 2 = volume/brilho
+                        var accumX = 0f
+                        var accumY = 0f
+                        var startPosition = 0L
+                        var seekTarget = 0L
+                        var startVolume = 0f
+                        var startBrightness = 0f
+                        var verticalStartX = 0f
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                mode = 0
+                                accumX = 0f
+                                accumY = 0f
+                                startPosition = exoPlayer.currentPosition.coerceAtLeast(0L)
+                                seekTarget = startPosition
+                                startVolume = volume
+                                startBrightness = brightness
+                                verticalStartX = offset.x
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                accumX += dragAmount.x
+                                accumY += dragAmount.y
+                                if (mode == 0) {
+                                    if (abs(accumX) > abs(accumY) && abs(accumX) > 14f) mode = 1
+                                    else if (abs(accumY) > abs(accumX) && abs(accumY) > 14f) mode = 2
+                                }
+                                if (mode == 1) {
+                                    val width = size.width.coerceAtLeast(1)
+                                    // Arrastar a largura inteira equivale a ~2 min.
+                                    val deltaMs = (accumX / width) * 120_000f
+                                    seekTarget = (startPosition + deltaMs.toLong())
+                                        .coerceIn(0L, duration.coerceAtLeast(0L))
+                                    position = seekTarget
+                                    dragHint = DragHint(
+                                        Icons.Rounded.Forward10,
+                                        "${formatTime(seekTarget)} / ${formatTime(duration)}"
+                                    )
+                                    setShowControls(true)
+                                } else if (mode == 2) {
+                                    val height = size.height.coerceAtLeast(1)
+                                    val fraction = accumY / height
+                                    if (verticalStartX < size.width / 2f) {
+                                        brightness = (startBrightness - fraction).coerceIn(0.02f, 1f)
+                                        applyBrightness(brightness)
+                                        dragHint = DragHint(
+                                            Icons.Rounded.Brightness6,
+                                            "Brilho ${(brightness * 100).roundToInt()}%"
+                                        )
+                                    } else {
+                                        volume = (startVolume - fraction).coerceIn(0f, 1f)
+                                        applyVolume(volume)
+                                        dragHint = DragHint(
+                                            if (volume <= 0f) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                                            "Volume ${(volume * 100).roundToInt()}%"
+                                        )
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                if (mode == 1 && duration > 0L) {
+                                    exoPlayer.seekTo(seekTarget)
+                                    position = seekTarget
+                                    setShowControls(true)
+                                }
+                                dragHint = null
+                                mode = 0
+                            },
+                            onDragCancel = {
+                                dragHint = null
+                                mode = 0
                             }
                         )
                     }
@@ -609,7 +891,69 @@ private fun DirectPlayer(
                     )
                 }
 
-                if (showControls) {
+                dragHint?.let { hint ->
+                    Surface(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.Black.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = hint.icon,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = hint.label,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                if (locked) {
+                    IconButton(
+                        onClick = {
+                            onLockedChange(false)
+                            setShowControls(true)
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(12.dp)
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.45f))
+                    ) {
+                        Icon(Icons.Rounded.LockOpen, contentDescription = "Destravar controles", tint = Color.White)
+                    }
+                }
+
+                if (showNext && hasNextEpisode && !locked) {
+                    NextEpisodeCard(
+                        countdown = countdown,
+                        onPlayNow = {
+                            showNext = false
+                            onNextEpisode()
+                        },
+                        onDismiss = {
+                            nextDismissed = true
+                            showNext = false
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .navigationBarsPadding()
+                            .padding(end = 18.dp, bottom = 76.dp)
+                    )
+                }
+
+                if (showControls && !locked) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -699,6 +1043,73 @@ private fun DirectPlayer(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NextEpisodeCard(
+    countdown: Int,
+    onPlayNow: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = Color.Black.copy(alpha = 0.82f)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.SkipNext,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = "A seguir em ${countdown}s",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Próximo episódio",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onPlayNow) {
+                Text("Assistir", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Rounded.Close, contentDescription = "Dispensar", tint = Color.White.copy(alpha = 0.85f))
+            }
+        }
+    }
+}
+
+private fun applySubtitleSelection(player: ExoPlayer, index: Int?) {
+    runCatching {
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (index == null) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        } else {
+            val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+            if (index in groups.indices) {
+                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                builder.setOverrideForType(
+                    TrackSelectionOverride(groups[index].mediaTrackGroup, 0)
+                )
+            }
+        }
+        player.trackSelectionParameters = builder.build()
     }
 }
 
@@ -815,6 +1226,92 @@ private fun SpeedSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SubtitleSheet(
+    subtitles: List<Subtitle>,
+    selected: Int?,
+    onSelect: (Int?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 18.dp)
+        ) {
+            Text(
+                text = "Legendas",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(10.dp))
+            SubtitleRow(
+                label = "Desativadas",
+                active = selected == null,
+                icon = Icons.Rounded.VolumeOff,
+                onClick = { onSelect(null) }
+            )
+            subtitles.forEachIndexed { index, subtitle ->
+                SubtitleRow(
+                    label = subtitle.label.ifBlank { "Legenda ${index + 1}" },
+                    active = selected == index,
+                    icon = Icons.Rounded.Subtitles,
+                    onClick = { onSelect(index) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubtitleRow(
+    label: String,
+    active: Boolean,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .background(
+                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else Color.Transparent
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        if (active) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

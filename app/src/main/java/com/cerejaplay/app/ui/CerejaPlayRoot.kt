@@ -340,7 +340,18 @@ private fun AppNavigation(config: AppConfig, repository: CerejaRepository) {
                     title = title.ifBlank { "Reprodução" },
                     poster = poster.ifBlank { null },
                     backdrop = backdrop.ifBlank { null },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onNextEpisode = if (episode > 0) {
+                        { next ->
+                            navController.navigate(
+                                playerRoute(type, id, season, next, title, poster, backdrop)
+                            ) {
+                                popUpTo(entry.destination.id) { inclusive = true }
+                            }
+                        }
+                    } else {
+                        null
+                    }
                 )
             }
         }
