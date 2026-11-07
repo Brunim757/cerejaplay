@@ -8,6 +8,7 @@ import com.cerejaplay.app.data.model.CalendarEntry
 import com.cerejaplay.app.data.model.CatalogEndpoints
 import com.cerejaplay.app.data.model.DetailResponse
 import com.cerejaplay.app.data.model.EndpointsConfig
+import com.cerejaplay.app.data.model.FeedbackRequest
 import com.cerejaplay.app.data.model.HistoryItem
 import com.cerejaplay.app.data.model.LanguageChoice
 import com.cerejaplay.app.data.model.ListResponse
@@ -241,6 +242,41 @@ class CerejaRepository(
     suspend fun updateProfile(value: String) = preferences.updateProfile(value)
     suspend fun markOnboardingSeen() = preferences.setOnboardingSeen()
     suspend fun clearHistory() = preferences.clearHistory()
+
+    val lastGoodProvider: Flow<String?> = preferences.lastGoodProvider
+    suspend fun setLastGoodProvider(value: String) = preferences.setLastGoodProvider(value)
+
+    /**
+     * Conta para a API se uma fonte tocou ou falhou. Alimenta o placar de
+     * saúde e a "última fonte boa". Nunca deve derrubar a reprodução: falhas
+     * aqui são silenciosas.
+     */
+    suspend fun feedback(
+        type: String,
+        id: String,
+        stream: com.cerejaplay.app.data.model.Stream,
+        success: Boolean,
+        season: Int? = null,
+        episode: Int? = null,
+        audio: String? = null
+    ) {
+        runCatching {
+            service.feedback(
+                FeedbackRequest(
+                    type = type,
+                    id = id,
+                    season = season?.takeIf { it > 0 },
+                    episode = episode?.takeIf { it > 0 },
+                    provider = stream.provider.ifBlank { null },
+                    extractor = stream.extractor.ifBlank { stream.provider.ifBlank { null } },
+                    resolver = stream.resolver,
+                    audio = audio ?: stream.audio,
+                    label = stream.label ?: stream.server,
+                    success = success
+                )
+            )
+        }
+    }
 
     private suspend fun <T> call(block: suspend () -> T): T {
         try {

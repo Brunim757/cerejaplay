@@ -385,8 +385,13 @@ data class WatchPayload(
     val outro: SkipInterval? = null,
     val languages: List<LanguageOption> = emptyList(),
     val providers: List<String> = emptyList(),
+    val requestedAudio: String? = null,
+    val fallbackAudio: String? = null,
+    val audioFallback: Boolean = false,
+    val audioNotice: String? = null,
     val best: Stream? = null,
     val streams: List<Stream> = emptyList(),
+    val cached: Boolean = false,
     val elapsedMs: Long = 0
 )
 
@@ -418,17 +423,44 @@ data class Stream(
     val height: Int? = null,
     val language: String? = null,
     val audio: String? = null,
+    val audioLang: String? = null,
     val subtitles: List<Subtitle> = emptyList(),
     @Serializable(with = QualitiesSerializer::class)
     val qualities: List<QualityVariant> = emptyList(),
     val headers: Map<String, String> = emptyMap(),
     val error: String? = null,
-    val score: Int = 0
+    val score: Int = 0,
+    val verified: Boolean? = null,
+    val providerStatus: String? = null,
+    val probeStatus: String? = null
 ) {
     val isDirect: Boolean get() = (type == "hls" || type == "mp4") && !url.isNullOrBlank()
     val isPlayable: Boolean get() =
         isDirect || (type == "resolver" && !resolver.isNullOrBlank() && !embed.isNullOrBlank())
     val playTarget: String? get() = url ?: embed
+
+    val isAlive: Boolean get() = verified != false
+
+    /** Rótulo curto de áudio: ORIG / LEG / DUB. */
+    val audioBadge: String?
+        get() = when (audio?.lowercase()) {
+            "dub" -> "DUB"
+            "sub", "leg" -> "LEG"
+            "original" -> "ORIG"
+            else -> null
+        }
+
+    /** Compatível com um áudio pedido ("original", "dub", "sub"). */
+    fun matchesAudio(requested: String?): Boolean {
+        val wanted = requested?.lowercase() ?: return true
+        val current = audio?.lowercase() ?: return false
+        return when (wanted) {
+            "dub" -> current == "dub"
+            "sub", "leg" -> current == "sub" || current == "original"
+            "original", "orig" -> current == "original" || current == "sub"
+            else -> true
+        }
+    }
 }
 
 @Serializable
@@ -482,4 +514,23 @@ object QualitiesSerializer : KSerializer<List<QualityVariant>> {
 data class ApiErrorBody(
     val success: Boolean = false,
     val error: String? = null
+)
+
+@Serializable
+data class FeedbackRequest(
+    val type: String,
+    val id: String,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val provider: String? = null,
+    val extractor: String? = null,
+    val resolver: String? = null,
+    val audio: String? = null,
+    val label: String? = null,
+    val success: Boolean = true
+)
+
+@Serializable
+data class FeedbackResponse(
+    val success: Boolean = false
 )

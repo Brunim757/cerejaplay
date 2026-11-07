@@ -178,8 +178,12 @@ fun PlayerScreen(
 
     if (showSources && state.watch != null) {
         SourcesSheet(
-            streams = state.watch?.streams ?: emptyList(),
+            streams = state.visibleStreams,
             selected = state.selected,
+            requestedAudio = state.requestedAudio,
+            unstableCount = state.unstableCount,
+            showUnstable = state.showUnstable,
+            onToggleUnstable = viewModel::toggleUnstable,
             onSelect = {
                 viewModel.selectStream(it)
                 showSources = false
@@ -189,6 +193,26 @@ fun PlayerScreen(
                 viewModel.retry()
             },
             onDismiss = { showSources = false }
+        )
+    }
+
+    // Fallback de áudio: nunca tocamos dublado (ou original) sem o usuário
+    // confirmar. Quando o áudio pedido não existe, aparece este aviso.
+    if (state.audioNotice != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = viewModel::dismissAudioFallback,
+            title = { Text("Áudio diferente do escolhido") },
+            text = { Text(state.audioNotice ?: "") },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmAudioFallback) {
+                    Text("Assistir mesmo assim")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissAudioFallback) {
+                    Text("Escolher fonte")
+                }
+            }
         )
     }
 
@@ -280,7 +304,7 @@ fun PlayerScreen(
     ) {
         when {
             state.loading -> {
-                LoadingState(message = "Localizando a melhor fonte...")
+                LoadingState(message = "Testando as melhores fontes...")
             }
 
             state.watch == null -> {
@@ -292,7 +316,12 @@ fun PlayerScreen(
 
             state.selected == null -> {
                 ErrorState(
-                    message = state.error ?: "Nenhuma fonte compatível com o player nativo para este título.",
+                    message = state.error
+                        ?: if (state.audioNotice != null) {
+                            "Só encontrei este título em outro áudio. Confirme no aviso ou escolha outra fonte."
+                        } else {
+                            "Nenhuma fonte compatível com o player nativo para este título."
+                        },
                     onRetry = viewModel::retry
                 )
             }
@@ -319,6 +348,7 @@ fun PlayerScreen(
                         watchEpisode?.let { next -> onNextEpisode?.invoke(next + 1) }
                     },
                     onProgress = viewModel::saveProgress,
+                    onStarted = viewModel::onPlaybackStarted,
                     onError = viewModel::onPlaybackError,
                     onVideoSize = { width, height ->
                         videoWidth = width
@@ -498,6 +528,7 @@ private fun DirectPlayer(
     nextCountdown: Int,
     onNextEpisode: () -> Unit,
     onProgress: (Long, Long) -> Unit,
+    onStarted: (Stream) -> Unit,
     onError: (Stream, String) -> Unit,
     onVideoSize: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
@@ -569,6 +600,8 @@ private fun DirectPlayer(
     // a fonte nova que o usuario acabou de escolher.
     var activeMediaStream by remember { mutableStateOf<Stream?>(null) }
     var hasAppliedMedia by remember { mutableStateOf(false) }
+    // Avisa a API (uma vez por fonte) que a reprodução realmente começou.
+    var notifiedStarted by remember(stream) { mutableStateOf(false) }
 
     LaunchedEffect(stream) {
         if (stream.type != "resolver") {
@@ -665,6 +698,7 @@ private fun DirectPlayer(
             itemBuilder.setMediaMetadata(metadata)
             player.setMediaItem(itemBuilder.build(), resumeAt)
             player.setPlaybackSpeed(startSpeed)
+            applyAudioPreference(player, stream)
             player.prepare()
             player.playWhenReady = autoplay
             hasAppliedMedia = true
@@ -673,6 +707,7 @@ private fun DirectPlayer(
 
     val currentSubtitleIndex = rememberUpdatedState(subtitleIndex)
     val latestOnError = rememberUpdatedState(onError)
+    val latestOnStarted = rememberUpdatedState(onStarted)
     val latestOnProgress = rememberUpdatedState(onProgress)
     val latestOnVideoSize = rememberUpdatedState(onVideoSize)
     val latestHasNextEpisode = rememberUpdatedState(hasNextEpisode)
@@ -747,6 +782,13 @@ private fun DirectPlayer(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                if (playing && !notifiedStarted) {
+                    val source = activeMediaStream
+                    if (source != null) {
+                        notifiedStarted = true
+                        latestOnStarted.value(source)
+                    }
+                }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -1229,6 +1271,26 @@ private fun applySubtitleSelection(player: Player, index: Int?) {
     }
 }
 
+/**
+ * Prefere a faixa de áudio certa quando a fonte carrega mais de um idioma:
+ * japonês/original em fontes legendadas e português em fontes dubladas. Se a
+ * faixa preferida não existir, o ExoPlayer mantém a padrão (sem tela preta).
+ * Não sobrescreve a escolha manual porque roda só ao aplicar a mídia.
+ */
+private fun applyAudioPreference(player: Player, stream: Stream) {
+    val preferred = when (stream.audio?.lowercase()) {
+        "dub" -> "pt"
+        "original", "sub", "leg" -> "ja"
+        else -> null
+    } ?: return
+    runCatching {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setPreferredAudioLanguage(preferred)
+            .build()
+    }
+}
+
 @Composable
 private fun ControlButton(
     icon: ImageVector,
@@ -1515,6 +1577,10 @@ private fun AudioSheet(
 private fun SourcesSheet(
     streams: List<Stream>,
     selected: Stream?,
+    requestedAudio: String?,
+    unstableCount: Int,
+    showUnstable: Boolean,
+    onToggleUnstable: () -> Unit,
     onSelect: (Stream) -> Unit,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit
@@ -1548,6 +1614,23 @@ private fun SourcesSheet(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (unstableCount > 0) {
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = onToggleUnstable,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = if (showUnstable) {
+                            "Ocultar $unstableCount fonte(s) instável(is)"
+                        } else {
+                            "Mostrar $unstableCount fonte(s) instável(is)"
+                        },
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
             Spacer(Modifier.height(6.dp))
             LazyColumn(
                 modifier = Modifier
@@ -1560,6 +1643,7 @@ private fun SourcesSheet(
                     val active = stream.url == selected?.url &&
                         stream.embed == selected?.embed &&
                         stream.type == selected?.type
+                    val mismatched = !stream.matchesAudio(requestedAudio)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1573,19 +1657,41 @@ private fun SourcesSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stream.label ?: stream.server ?: stream.provider,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                stream.audioBadge?.let { badge ->
+                                    AudioBadge(badge)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = stream.label ?: stream.server ?: stream.provider,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             Text(
                                 text = sourceSubtitle(stream),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (!stream.isAlive) {
+                            Text(
+                                text = "instável",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 6.dp)
+                            )
+                        }
+                        if (mismatched) {
+                            Text(
+                                text = "outro áudio",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 6.dp)
                             )
                         }
                         if (active) {
@@ -1605,6 +1711,28 @@ private fun SourcesSheet(
                 modifier = Modifier.padding(top = 10.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun AudioBadge(label: String) {
+    val color = when (label) {
+        "DUB" -> Color(0xFF3B82F6)
+        "LEG" -> Color(0xFF22C55E)
+        "ORIG" -> Color(0xFFEAB308)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = color.copy(alpha = 0.18f)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
 

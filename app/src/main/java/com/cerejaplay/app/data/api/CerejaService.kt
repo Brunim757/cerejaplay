@@ -12,7 +12,11 @@ import com.cerejaplay.app.data.model.RecommendationsResponse
 import com.cerejaplay.app.data.model.RelatedResponse
 import com.cerejaplay.app.data.model.SearchResponse
 import com.cerejaplay.app.data.model.WatchResponse
+import com.cerejaplay.app.data.model.FeedbackRequest
+import com.cerejaplay.app.data.model.FeedbackResponse
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
 import retrofit2.http.Query
 import retrofit2.http.Url
 
@@ -96,5 +100,8 @@ interface CerejaService {
         @Query("audio") audio: String? = null,
         @Query("quality") quality: String? = null
     ): WatchResponse
+
+    @POST("api/watch/feedback")
+    suspend fun feedback(@Body body: FeedbackRequest): FeedbackResponse
 }
 

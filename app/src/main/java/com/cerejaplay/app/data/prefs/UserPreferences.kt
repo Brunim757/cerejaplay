@@ -32,6 +32,7 @@ class UserPreferences(private val context: Context, private val json: Json) {
         val THEME = stringPreferencesKey("theme")
         val PROFILE = stringPreferencesKey("profile")
         val ONBOARDING = booleanPreferencesKey("onboarding_seen")
+        val LAST_GOOD = stringPreferencesKey("last_good_provider")
         // Chaves legadas (perfil único) para migração transparente.
         val HISTORY = stringPreferencesKey("history_json")
         val FAVORITES = stringPreferencesKey("favorites_json")
@@ -71,6 +72,17 @@ class UserPreferences(private val context: Context, private val json: Json) {
 
     val onboardingSeen: Flow<Boolean> = context.cerejaDataStore.data.map { prefs ->
         prefs[Keys.ONBOARDING] ?: false
+    }
+
+    /** Último provedor/extrator que tocou de verdade neste aparelho. */
+    val lastGoodProvider: Flow<String?> = context.cerejaDataStore.data.map { prefs ->
+        prefs[Keys.LAST_GOOD]
+    }
+
+    suspend fun setLastGoodProvider(value: String) {
+        val cleaned = value.trim()
+        if (cleaned.isBlank()) return
+        context.cerejaDataStore.edit { it[Keys.LAST_GOOD] = cleaned }
     }
 
     suspend fun setOnboardingSeen() {

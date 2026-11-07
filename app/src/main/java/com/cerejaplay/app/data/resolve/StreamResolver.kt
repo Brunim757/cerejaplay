@@ -50,12 +50,68 @@ object StreamResolver {
 
     private val vixsrcPlaylistPattern = Regex("""url\s*:\s*['"]([^'"]+)['"]""")
 
+    // Vidmoly/kaembed expõe `sources: [{ file: 'https://.../master.m3u8?t=...' }]`
+    // no JS do player. A URL é amarrada ao IP/ASN de quem abriu o embed, então
+    // ela precisa ser resolvida aqui no aparelho, nunca no servidor.
+    private val genericM3u8Pattern = Regex("""https?://[^"'\s\\<>]+\.m3u8[^"'\s\\<>]*""")
+
+    private val jsFilePattern = Regex("""file\s*:\s*['"]((?:[^'"\\]|\\.)+)['"]""")
+
     suspend fun resolve(stream: Stream): ResolvedStream = withContext(Dispatchers.IO) {
         when (stream.resolver) {
             "blogger" -> resolveBlogger(stream)
             "vixsrc" -> resolveVixsrc(stream)
+            "vidmoly" -> resolveDirectEmbed(stream, label = "Vidmoly")
+            "html-hls" -> resolveDirectEmbed(stream, label = "a fonte")
             else -> throw IOException("Esta fonte não é compatível com o player nativo.")
         }
+    }
+
+    /**
+     * Fontes que entregam a playlist HLS direto na página de embed (Vidmoly e
+     * similares). Lê o HTML, procura o primeiro `master.m3u8`/`.m3u8` válido e
+     * devolve pronto para o ExoPlayer, com o Referer do próprio embed.
+     */
+    private fun resolveDirectEmbed(stream: Stream, label: String): ResolvedStream {
+        val page = stream.embed?.takeIf { it.isNotBlank() }
+            ?: throw IOException("Fonte sem endereço para preparar o vídeo.")
+
+        val referer = page.substringBefore("?").let { base ->
+            val schemeEnd = base.indexOf("://")
+            if (schemeEnd < 0) page else {
+                val pathStart = base.indexOf('/', schemeEnd + 3)
+                if (pathStart < 0) base else base.substring(0, pathStart + 1)
+            }
+        }
+        val headers = stream.headers + mapOf(
+            "User-Agent" to MOBILE_UA,
+            "Referer" to referer
+        )
+
+        val body = fetch(url = page, headers = headers)
+        val plain = unescapeHtml(body)
+
+        // 1) `sources: [{ file: '...' }]` — formato do JW Player.
+        val fileCandidate = jsFilePattern.findAll(plain)
+            .map { it.groupValues[1] }
+            .map { unescapeJson(it) }
+            .firstOrNull { it.contains(".m3u8", ignoreCase = true) }
+        // 2) Qualquer .m3u8 no corpo (fallback).
+        val anyCandidate = fileCandidate
+            ?: genericM3u8Pattern.find(plain)?.value
+
+        val url = anyCandidate?.trimEnd(',', ';', '"', '\'')
+            ?: throw IOException("$label não expôs uma playlist compatível.")
+
+        return ResolvedStream(
+            url = url,
+            headers = mapOf(
+                "User-Agent" to MOBILE_UA,
+                "Referer" to referer
+            ),
+            quality = null,
+            isHls = true
+        )
     }
 
     private fun resolveBlogger(stream: Stream): ResolvedStream {
