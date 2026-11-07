@@ -672,11 +672,11 @@ private fun DirectPlayer(
     }
 
     val currentSubtitleIndex = rememberUpdatedState(subtitleIndex)
-    val latestOnError by rememberUpdatedState(onError)
-    val latestOnProgress by rememberUpdatedState(onProgress)
-    val latestOnVideoSize by rememberUpdatedState(onVideoSize)
-    val latestHasNextEpisode by rememberUpdatedState(hasNextEpisode)
-    val latestNextDismissed by rememberUpdatedState(nextDismissed)
+    val latestOnError = rememberUpdatedState(onError)
+    val latestOnProgress = rememberUpdatedState(onProgress)
+    val latestOnVideoSize = rememberUpdatedState(onVideoSize)
+    val latestHasNextEpisode = rememberUpdatedState(hasNextEpisode)
+    val latestNextDismissed = rememberUpdatedState(nextDismissed)
 
     LaunchedEffect(startSpeed, exoPlayer) {
         exoPlayer?.setPlaybackSpeed(startSpeed)
